@@ -50,20 +50,42 @@ Press **`c`** on the Diff tab:
 ## Install
 
 ```bash
-npm install
-npm run build
-npm link          # optional
+# global CLI (command is still `rigit`)
+npm install -g @srinesh/rigit
+rigit
+
+# or one-off
+npx @srinesh/rigit
 ```
 
+### From source
+
 ```bash
+npm install
+npm run build
+npm link          # optional local global link
 npm run dev       # development
-npm start         # after build
 ```
 
 ## Auto commit messages
 
 - **Default:** heuristic from staged paths / diff  
 - **Optional AI:** `export XAI_API_KEY=...` (xAI `grok-4.5`)
+
+## Setup & edge cases
+
+`rigit` guides you through common situations instead of only failing:
+
+| Situation | What happens |
+|-----------|----------------|
+| **No git repo** | Asks to run `git init` in the current folder |
+| **No user.name / email** | Prompts for name + email (`git config --local`) |
+| **No remote** (on push) | Offers to add a remote URL, then push |
+| **Empty repo** | Banner + friendly Log/Diff (no crash on missing HEAD) |
+| **Merge / rebase / cherry-pick / revert** | Warning banner |
+| **Detached HEAD** | Warning banner |
+| **Push rejected** | Shows git error + hints (no force-push) |
+| **git missing / no TTY** | Clear error and exit |
 
 ## Requirements
 

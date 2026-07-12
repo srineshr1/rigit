@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 
 export type ChangedFile = {
   path: string;
@@ -165,7 +166,7 @@ export function hasUpstream(): boolean {
 
 export type PushResult =
   | { ok: true; detail: string }
-  | { ok: false; error: string };
+  | { ok: false; error: string; code?: "no_remote" | "rejected" | "other" };
 
 export function push(): PushResult {
   if (hasUpstream()) {
@@ -173,7 +174,11 @@ export function push(): PushResult {
     if (r.status === 0) {
       return { ok: true, detail: r.stderr.trim() || r.stdout.trim() || "Pushed." };
     }
-    return { ok: false, error: (r.stderr || r.stdout).trim() };
+    return {
+      ok: false,
+      error: formatPushError(r.stderr || r.stdout),
+      code: "rejected",
+    };
   }
 
   if (hasRemote("origin")) {
@@ -184,13 +189,54 @@ export function push(): PushResult {
         detail: r.stderr.trim() || r.stdout.trim() || "Pushed (set upstream origin).",
       };
     }
-    return { ok: false, error: (r.stderr || r.stdout).trim() };
+    return {
+      ok: false,
+      error: formatPushError(r.stderr || r.stdout),
+      code: "rejected",
+    };
+  }
+
+  // Any other remotes?
+  const remotes = listRemotes();
+  if (remotes.length > 0) {
+    const name = remotes[0]!.name;
+    const r = runGit(["push", "-u", name, "HEAD"], { allowFailure: true });
+    if (r.status === 0) {
+      return {
+        ok: true,
+        detail: r.stderr.trim() || r.stdout.trim() || `Pushed (set upstream ${name}).`,
+      };
+    }
+    return {
+      ok: false,
+      error: formatPushError(r.stderr || r.stdout),
+      code: "rejected",
+    };
   }
 
   return {
     ok: false,
-    error: "No upstream branch and no remote named origin. Add a remote first.",
+    error: "No remote configured. Add one to push.",
+    code: "no_remote",
   };
+}
+
+function formatPushError(raw: string): string {
+  const msg = raw.trim();
+  if (!msg) return "Push failed.";
+  const lower = msg.toLowerCase();
+  if (lower.includes("non-fast-forward") || lower.includes("fetch first")) {
+    return `${msg}\nHint: remote is ahead — pull/rebase before pushing (rigit will not force-push).`;
+  }
+  if (
+    lower.includes("authentication") ||
+    lower.includes("permission denied") ||
+    lower.includes("could not read username") ||
+    lower.includes("403")
+  ) {
+    return `${msg}\nHint: check SSH keys or credentials (gh auth login / ssh -T git@github.com).`;
+  }
+  return msg;
 }
 
 /** Quick check that git binary exists */
@@ -198,8 +244,143 @@ export function ensureGitAvailable(): void {
   try {
     execFileSync("git", ["--version"], { encoding: "utf8", stdio: "pipe" });
   } catch {
-    throw new Error("git is not installed or not on PATH");
+    throw new Error(
+      "git is not installed or not on PATH.\n" +
+        "  Install:  sudo apt install git   ·   brew install git   ·   https://git-scm.com",
+    );
   }
+}
+
+// --- Setup / repo health ---
+
+export function initRepo(): void {
+  runGit(["init"]);
+}
+
+export function hasCommits(): boolean {
+  const { status } = runGit(["rev-parse", "--verify", "HEAD"], {
+    allowFailure: true,
+  });
+  return status === 0;
+}
+
+export function getUserName(): string | undefined {
+  const { stdout, status } = runGit(["config", "--get", "user.name"], {
+    allowFailure: true,
+  });
+  if (status !== 0) return undefined;
+  const v = stdout.trim();
+  return v || undefined;
+}
+
+export function getUserEmail(): string | undefined {
+  const { stdout, status } = runGit(["config", "--get", "user.email"], {
+    allowFailure: true,
+  });
+  if (status !== 0) return undefined;
+  const v = stdout.trim();
+  return v || undefined;
+}
+
+export function hasIdentity(): boolean {
+  return Boolean(getUserName() && getUserEmail());
+}
+
+export function setLocalIdentity(name: string, email: string): void {
+  runGit(["config", "--local", "user.name", name.trim()]);
+  runGit(["config", "--local", "user.email", email.trim()]);
+}
+
+export type RemoteInfo = { name: string; url: string };
+
+export function listRemotes(): RemoteInfo[] {
+  const { stdout, status } = runGit(["remote", "-v"], { allowFailure: true });
+  if (status !== 0 || !stdout.trim()) return [];
+  const map = new Map<string, string>();
+  for (const line of stdout.split("\n")) {
+    // origin  https://... (fetch)
+    const m = line.match(/^(\S+)\s+(\S+)\s+\(fetch\)/);
+    if (m?.[1] && m[2]) map.set(m[1], m[2]);
+  }
+  return [...map.entries()].map(([name, url]) => ({ name, url }));
+}
+
+export function addRemote(name: string, url: string): void {
+  const n = name.trim() || "origin";
+  const u = url.trim();
+  if (!u) throw new Error("Remote URL cannot be empty");
+  if (hasRemote(n)) {
+    runGit(["remote", "set-url", n, u]);
+    return;
+  }
+  runGit(["remote", "add", n, u]);
+}
+
+export type RepoState =
+  | { kind: "normal"; branch: string }
+  | { kind: "empty"; branch: string }
+  | { kind: "detached"; short: string }
+  | { kind: "merge"; branch: string }
+  | { kind: "rebase"; branch: string }
+  | { kind: "cherry-pick"; branch: string }
+  | { kind: "revert"; branch: string };
+
+export function getRepoState(): RepoState {
+  const branch = currentBranch();
+
+  if (runGit(["rev-parse", "-q", "--verify", "MERGE_HEAD"], { allowFailure: true }).status === 0) {
+    return { kind: "merge", branch };
+  }
+  if (
+    runGit(["rev-parse", "-q", "--verify", "CHERRY_PICK_HEAD"], { allowFailure: true })
+      .status === 0
+  ) {
+    return { kind: "cherry-pick", branch };
+  }
+  if (runGit(["rev-parse", "-q", "--verify", "REVERT_HEAD"], { allowFailure: true }).status === 0) {
+    return { kind: "revert", branch };
+  }
+
+  const rebaseMerge = runGit(["rev-parse", "--git-path", "rebase-merge"], {
+    allowFailure: true,
+  }).stdout.trim();
+  const rebaseApply = runGit(["rev-parse", "--git-path", "rebase-apply"], {
+    allowFailure: true,
+  }).stdout.trim();
+  if ((rebaseMerge && existsSync(rebaseMerge)) || (rebaseApply && existsSync(rebaseApply))) {
+    return { kind: "rebase", branch };
+  }
+
+  if (!hasCommits()) {
+    return { kind: "empty", branch: branch === "HEAD" ? "main" : branch };
+  }
+
+  const { stdout: show } = runGit(["branch", "--show-current"], {
+    allowFailure: true,
+  });
+  if (!show.trim()) {
+    const short = runGit(["rev-parse", "--short", "HEAD"], {
+      allowFailure: true,
+    }).stdout.trim();
+    return { kind: "detached", short: short || "unknown" };
+  }
+
+  return { kind: "normal", branch: show.trim() };
+}
+
+export function isIdentityError(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("empty ident") ||
+    m.includes("user.name") ||
+    m.includes("user.email") ||
+    m.includes("unable to auto-detect email") ||
+    m.includes("please tell me who you are")
+  );
+}
+
+export function cwdDisplay(): string {
+  return process.cwd();
 }
 
 // --- Diff ---
@@ -211,8 +392,15 @@ function diffBaseArgs(scope: DiffScope, color: boolean): string[] {
   if (color) args.push("--color=always");
   else args.push("--no-color");
 
-  if (scope === "staged") args.push("--cached");
-  else if (scope === "all") args.push("HEAD");
+  if (scope === "staged") {
+    args.push("--cached");
+  } else if (scope === "all") {
+    // HEAD may not exist in an empty repo
+    if (hasCommits()) {
+      args.push("HEAD");
+    }
+    // else: same as unstaged (working tree vs index + we'll note untracked)
+  }
   return args;
 }
 
@@ -304,11 +492,15 @@ export function listRefCompareChoices(limit = 12): CompareChoice[] {
   const choices: CompareChoice[] = [
     { id: COMPARE_WORKING, label: "Working tree", hint: "disk" },
     { id: COMPARE_STAGED, label: "Staged (index)", hint: "index" },
-    { id: "HEAD", label: "HEAD", hint: "current" },
   ];
+
+  if (hasCommits()) {
+    choices.push({ id: "HEAD", label: "HEAD", hint: "current" });
+  }
 
   for (const b of listLocalBranches()) {
     if (b.name === "HEAD") continue;
+    // Unborn branch still lists; comparing may be empty until first commit
     choices.push({
       id: b.name,
       label: b.name,
@@ -316,18 +508,19 @@ export function listRefCompareChoices(limit = 12): CompareChoice[] {
     });
   }
 
-  const log = getRecentLog(limit);
-  for (const line of log) {
-    // "abc1234 (HEAD -> main) message"
-    const hash = line.split(/\s+/)[0];
-    if (!hash || hash === "HEAD") continue;
-    if (choices.some((c) => c.id === hash)) continue;
-    const rest = line.slice(hash.length).trim();
-    choices.push({
-      id: hash,
-      label: hash,
-      hint: rest.slice(0, 40),
-    });
+  if (hasCommits()) {
+    const log = getRecentLog(limit);
+    for (const line of log) {
+      const hash = line.split(/\s+/)[0];
+      if (!hash || hash === "HEAD") continue;
+      if (choices.some((c) => c.id === hash)) continue;
+      const rest = line.slice(hash.length).trim();
+      choices.push({
+        id: hash,
+        label: hash,
+        hint: rest.slice(0, 40),
+      });
+    }
   }
 
   return choices;

@@ -1,10 +1,10 @@
 {
-  "name": "rigit",
-  "version": "0.1.0",
+  "name": "@srinesh/rigit",
+  "version": "0.1.1",
   "description": "Single-command TUI for staging, committing, and pushing git changes",
   "type": "module",
   "bin": {
-    "rigit": "./dist/cli.js"
+    "rigit": "dist/cli.js"
   },
   "files": [
     "dist"
@@ -13,7 +13,11 @@
     "dev": "tsx src/cli.ts",
     "build": "tsup",
     "start": "node dist/cli.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run typecheck && npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "engines": {
     "node": ">=18"

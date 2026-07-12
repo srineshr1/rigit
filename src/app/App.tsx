@@ -1,25 +1,28 @@
 import { useCallback, useMemo, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { TabBar } from "./components/TabBar.js";
+import { RepoBanner } from "./components/RepoBanner.js";
 import { CommitTab } from "./tabs/CommitTab.js";
 import { BranchesTab } from "./tabs/BranchesTab.js";
 import { DiffTab } from "./tabs/DiffTab.js";
 import { LogTab } from "./tabs/LogTab.js";
 import { nextTab, prevTab, type TabId } from "./tabs.js";
-import { currentBranch, getChangedFiles, type ChangedFile } from "../git.js";
+import {
+  currentBranch,
+  getChangedFiles,
+  getRepoState,
+  type ChangedFile,
+  type RepoState,
+} from "../git.js";
 
 export function App() {
   const { exit } = useApp();
   const [tab, setTab] = useState<TabId>("commit");
   const [branch, setBranch] = useState(() => currentBranch());
+  const [repoState, setRepoState] = useState<RepoState>(() => getRepoState());
   const [files, setFiles] = useState<ChangedFile[]>(() => getChangedFiles());
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
-  /** When true, tabs own typing (text inputs) — don't steal tab/q aggressively for inputs */
   const [inputMode, setInputMode] = useState(false);
-
-  // Track input mode by polling tab internal steps is hard; use a simple approach:
-  // App always handles tab/shift+tab/q except we pass captureKeys=true always for list modes.
-  // Text inputs: CommitTab/BranchesTab handle esc; we still allow tab to switch tabs from inputs.
 
   const refreshFiles = useCallback(() => {
     const next = getChangedFiles();
@@ -34,8 +37,9 @@ export function App() {
     });
   }, []);
 
-  const refreshBranch = useCallback(() => {
+  const refreshRepo = useCallback(() => {
     setBranch(currentBranch());
+    setRepoState(getRepoState());
     refreshFiles();
   }, [refreshFiles]);
 
@@ -53,7 +57,6 @@ export function App() {
     }
   });
 
-  // Children set input mode via context would be cleaner; use lightweight prop callbacks:
   const selectedList = useMemo(() => [...selected], [selected]);
   const allPaths = useMemo(() => files.map((f) => f.path), [files]);
 
@@ -74,6 +77,8 @@ export function App() {
         <TabBar active={tab} />
       </Box>
 
+      <RepoBanner state={repoState} />
+
       <CommitTab
         active={tab === "commit"}
         files={files}
@@ -82,11 +87,12 @@ export function App() {
         onRefresh={refreshFiles}
         captureKeys={tab === "commit"}
         onInputMode={setInputMode}
+        onRepoChanged={refreshRepo}
       />
       <BranchesTab
         active={tab === "branches"}
         captureKeys={tab === "branches"}
-        onBranchChange={refreshBranch}
+        onBranchChange={refreshRepo}
         onInputMode={setInputMode}
       />
       <DiffTab

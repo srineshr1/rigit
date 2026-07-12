@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { StatusBar } from "../components/StatusBar.js";
-import { getRecentLog } from "../../git.js";
+import { getRecentLog, hasCommits } from "../../git.js";
 
 type Props = {
   active: boolean;
@@ -37,7 +37,11 @@ export function LogTab({ active, captureKeys }: Props) {
     <Box flexDirection="column">
       <Text dimColor>Recent commits</Text>
       {lines.length === 0 ? (
-        <Text dimColor>No commits yet.</Text>
+        <Text dimColor>
+          {hasCommits()
+            ? "No commits to show."
+            : "No commits yet — make the first one on the Commit/Push tab."}
+        </Text>
       ) : (
         lines.map((line, i) => <Text key={i}>{line}</Text>)
       )}
