@@ -1,46 +1,61 @@
 # rigit
 
-Single-command TUI for **staging**, **committing**, and **pushing** git changes.
+Single-command **tabbed** TUI for git staging, commit, push, branches, and diff.
 
 ```bash
 rigit
 ```
 
-## Flow
+Opens on **Commit/Push** (staging) by default.
 
-1. **Choose files** — multi-select (or “All files”)
-2. **Commit message** — auto-generated (edit or replace)
-3. **Push** — confirm to push to remote
+## UI
 
-Matches the flow in `Design.md`.
+```
+ rigit  · main
+ [ Commit/Push ]   Branching   Diff   Log
+
+ [x] All files
+ [ ] src/cli.ts     modified
+ [x] README.md      modified
+```
+
+| Key | Action |
+|-----|--------|
+| `Tab` / `Shift+Tab` | Switch tabs |
+| `↑` `↓` | Move |
+| `Space` | Toggle file (or **All files** = every path) |
+| `a` | Select all / none |
+| `Enter` | Commit flow (message → push) |
+| `r` | Refresh |
+| `q` / `Esc` | Quit |
+
+### Tabs
+
+- **Commit/Push** — stage selected files, auto/custom message, optional push  
+- **Branching** — switch (`enter`) or create (`n`)  
+- **Diff** — view changes for selected files (or all); `s` scope, `p` pager  
+- **Log** — recent commits  
 
 ## Install
 
 ```bash
 npm install
 npm run build
-npm link          # optional: install `rigit` on your PATH
+npm link          # optional
 ```
 
-Or run without linking:
-
 ```bash
-npm run dev       # tsx src/cli.ts
-# or
+npm run dev       # development
 npm start         # after build
 ```
 
 ## Auto commit messages
 
-- **Default:** heuristic from staged paths / `git diff --cached`
-- **Optional AI:** set `XAI_API_KEY` to generate messages via xAI (`grok-4.5`)
-
-```bash
-export XAI_API_KEY=...
-rigit
-```
+- **Default:** heuristic from staged paths / diff  
+- **Optional AI:** `export XAI_API_KEY=...` (xAI `grok-4.5`)
 
 ## Requirements
 
 - Node.js 18+
 - `git` on PATH
+- Interactive terminal (TTY)
