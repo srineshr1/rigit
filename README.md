@@ -33,8 +33,19 @@ Opens on **Commit/Push** (staging) by default.
 
 - **Commit/Push** — stage selected files, auto/custom message, optional push  
 - **Branching** — switch (`enter`) or create (`n`)  
-- **Diff** — view changes for selected files (or all); `s` scope, `p` pager  
+- **Diff** — browse changes (`s` scope), or **compare two things** side-by-side (`c`)  
 - **Log** — recent commits  
+
+### Diff → Compare two things
+
+Press **`c`** on the Diff tab:
+
+1. Pick **two** items with `space` (or `1` left / `2` right)  
+   - **`m`** toggles **refs/commits** vs **files**  
+   - Refs include Working tree, Staged, HEAD, branches, recent commits  
+2. Side-by-side view: **red (−) left** / **green (+) right**  
+3. **`p`** opens full diff in pager · **`b`** back to picks/browse  
+
 
 ## Install
 

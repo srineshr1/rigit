@@ -1,0 +1,42 @@
+{
+  "name": "rigit",
+  "version": "0.1.0",
+  "description": "Single-command TUI for staging, committing, and pushing git changes",
+  "type": "module",
+  "bin": {
+    "rigit": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "tsup",
+    "start": "node dist/cli.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "git",
+    "cli",
+    "tui",
+    "commit",
+    "push"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "ink": "^7.1.0",
+    "ink-text-input": "^6.0.0",
+    "openai": "^6.46.0",
+    "react": "^19.2.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "@types/react": "^19.2.17",
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.0",
+    "typescript": "^7.0.2"
+  }
+}
