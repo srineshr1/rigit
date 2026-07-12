@@ -144,6 +144,29 @@ export function stageFiles(paths: string[] | "all"): void {
   runGit(["add", "--", ...paths]);
 }
 
+/**
+ * Undo staging (used when user cancels after stage, before commit).
+ * Does not modify working tree files.
+ */
+export function unstageFiles(paths: string[] | "all"): void {
+  if (hasCommits()) {
+    if (paths === "all") {
+      runGit(["reset", "-q", "HEAD"], { allowFailure: true });
+      return;
+    }
+    if (paths.length === 0) return;
+    runGit(["reset", "-q", "HEAD", "--", ...paths], { allowFailure: true });
+    return;
+  }
+  // Unborn branch: remove from index only
+  if (paths === "all") {
+    runGit(["rm", "-r", "-q", "--cached", "."], { allowFailure: true });
+    return;
+  }
+  if (paths.length === 0) return;
+  runGit(["rm", "-r", "-q", "--cached", "--", ...paths], { allowFailure: true });
+}
+
 export function getStagedDiffSummary(): string {
   const nameStatus = runGit(["diff", "--cached", "--name-status"], {
     allowFailure: true,

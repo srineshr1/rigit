@@ -14,35 +14,33 @@ export function RepoBanner({ state }: Props) {
   switch (state.kind) {
     case "empty":
       color = "blue";
-      message = `No commits yet on ${state.branch} — stage files and commit to create the first one.`;
+      message = `No commits yet on ${state.branch}`;
       break;
     case "detached":
       color = "yellow";
-      message = `Detached HEAD at ${state.short} — commits won't move a branch until you checkout/create one.`;
+      message = `Detached HEAD @ ${state.short}`;
       break;
     case "merge":
       color = "magenta";
-      message = `Merge in progress on ${state.branch} — fix conflicts, then commit to finish.`;
+      message = `Merge in progress — fix conflicts, then commit`;
       break;
     case "rebase":
       color = "magenta";
-      message = `Rebase in progress — continue/abort in git, or resolve conflicts and commit.`;
+      message = `Rebase in progress`;
       break;
     case "cherry-pick":
       color = "magenta";
-      message = `Cherry-pick in progress — resolve conflicts, then commit.`;
+      message = `Cherry-pick in progress`;
       break;
     case "revert":
       color = "magenta";
-      message = `Revert in progress — resolve conflicts, then commit.`;
+      message = `Revert in progress`;
       break;
   }
 
   return (
     <Box marginBottom={1}>
-      <Text color={color}>
-        ⚠ {message}
-      </Text>
+      <Text color={color}>⚠ {message}</Text>
     </Box>
   );
 }

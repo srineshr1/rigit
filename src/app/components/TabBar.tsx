@@ -11,7 +11,7 @@ export function TabBar({ active }: Props) {
       {TABS.map((tab) => {
         const isActive = tab.id === active;
         return (
-          <Box key={tab.id} marginRight={2}>
+          <Box key={tab.id} marginRight={1}>
             {isActive ? (
               <Text backgroundColor="cyan" color="black" bold>
                 {" "}

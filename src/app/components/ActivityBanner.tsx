@@ -76,7 +76,7 @@ function ActivityLine({ activity }: { activity: Activity }) {
           {" "}
           ERROR{" "}
         </Text>
-        <Text color="red"> {activity.message}</Text>
+        <Text color="red"> {truncate(activity.message, 90)}</Text>
       </Box>
     );
   }
@@ -91,51 +91,47 @@ function ActivityLine({ activity }: { activity: Activity }) {
 function SyncLine({ sync }: { sync: SyncStatus }) {
   switch (sync.kind) {
     case "empty":
-      return (
-        <Text dimColor>
-          Sync: no commits yet · file list = uncommitted changes only
-        </Text>
-      );
+      return <Text dimColor>Sync · no commits yet</Text>;
     case "no_remote":
-      return (
-        <Text dimColor>
-          Sync: no remote · commits stay local until you add one & push
-        </Text>
-      );
+      return <Text dimColor>Sync · no remote (commits stay local)</Text>;
     case "no_upstream":
       return (
         <Text color="yellow">
-          Sync: {sync.branch} has no upstream · push to publish commits
+          Sync · {sync.branch} has no upstream — push to publish
         </Text>
       );
     case "synced":
       return (
         <Text color="green">
-          Sync: ✓ up to date with {sync.upstream} ({sync.hash})
+          Sync · ✓ up to date with {sync.upstream} ({sync.hash})
         </Text>
       );
     case "ahead":
       return (
         <Text color="yellow">
-          Sync: ↑ {sync.ahead} local commit{sync.ahead === 1 ? "" : "s"} not
-          pushed to {sync.upstream} (HEAD {sync.hash})
+          Sync · ↑ {sync.ahead} local commit{sync.ahead === 1 ? "" : "s"} not
+          pushed → {sync.upstream}
         </Text>
       );
     case "behind":
       return (
         <Text color="magenta">
-          Sync: ↓ {sync.behind} commit{sync.behind === 1 ? "" : "s"} on{" "}
-          {sync.upstream} not in local — pull before pushing
+          Sync · ↓ {sync.behind} on {sync.upstream} missing locally — pull
+          first
         </Text>
       );
     case "diverged":
       return (
         <Text color="red">
-          Sync: diverged — ↑{sync.ahead} local / ↓{sync.behind} remote (
-          {sync.upstream})
+          Sync · diverged ↑{sync.ahead} / ↓{sync.behind} ({sync.upstream})
         </Text>
       );
     default:
       return null;
   }
+}
+
+function truncate(s: string, n: number): string {
+  const one = s.replace(/\s+/g, " ").trim();
+  return one.length <= n ? one : one.slice(0, n - 1) + "…";
 }

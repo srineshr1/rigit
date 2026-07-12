@@ -13,6 +13,7 @@ import {
   push,
   setLocalIdentity,
   stageFiles,
+  unstageFiles,
   type ChangedFile,
 } from "../../git.js";
 import { generateCommitMessage } from "../../message.js";
@@ -73,6 +74,8 @@ export function CommitTab({
   const [remoteUrl, setRemoteUrl] = useState("");
   const [pendingMessage, setPendingMessage] = useState<string | undefined>();
   const [lastHash, setLastHash] = useState("");
+  /** Paths rigit staged this session (for cancel → unstage) */
+  const [stagedPaths, setStagedPaths] = useState<string[] | "all" | null>(null);
 
   const goStep = useCallback(
     (s: Step) => {
@@ -82,17 +85,37 @@ export function CommitTab({
     [onInputMode],
   );
 
+  const cancelPreCommit = useCallback(
+    (note?: string) => {
+      if (stagedPaths) {
+        unstageFiles(stagedPaths);
+        setStagedPaths(null);
+        onRefresh();
+      }
+      setError(note);
+      setPendingMessage(undefined);
+      goStep("list");
+    },
+    [stagedPaths, onRefresh, goStep],
+  );
+
   const maxCursor = files.length;
 
   useEffect(() => {
     setCursor((c) => Math.min(c, maxCursor));
   }, [maxCursor]);
 
+  // Leaving tab mid pre-commit: unstage what we staged
   useEffect(() => {
-    if (!active && step !== "list") {
+    if (!active && step !== "list" && step !== "push" && step !== "remote-name" && step !== "remote-url" && step !== "busy") {
+      if (stagedPaths && (step === "message" || step === "identity-name" || step === "identity-email")) {
+        unstageFiles(stagedPaths);
+        setStagedPaths(null);
+        onRefresh();
+      }
       goStep("list");
     }
-  }, [active, step, goStep]);
+  }, [active, step, goStep, stagedPaths, onRefresh]);
 
   const toggleAll = useCallback(() => {
     const allOn =
@@ -118,6 +141,7 @@ export function CommitTab({
   );
 
   const finishAfterCommit = useCallback(() => {
+    setStagedPaths(null);
     goStep("list");
     setSelected(new Set());
     onRefresh();
@@ -131,10 +155,10 @@ export function CommitTab({
       try {
         const hash = commit(trimmed);
         setLastHash(hash);
+        setStagedPaths(null); // now committed; don't unstage on cancel push
         setStatus(`Committed ${hash} — ${trimmed}`);
         setPendingMessage(undefined);
         onRepoChanged?.();
-        // Not pushed yet — banner updates after push Y/N
         goStep("push");
       } catch (err) {
         const text = err instanceof Error ? err.message : String(err);
@@ -161,9 +185,12 @@ export function CommitTab({
     setStatus(undefined);
     goStep("busy");
     setBusyLabel("Staging files…");
+    let staged: string[] | "all" | null = null;
     try {
       const allOn = files.length > 0 && paths.length === files.length;
-      stageFiles(allOn ? "all" : paths);
+      staged = allOn ? "all" : paths;
+      stageFiles(staged);
+      setStagedPaths(staged);
       setBusyLabel("Generating commit message…");
       const summary = getStagedDiffSummary();
       const forAi = getStagedDiffForAi();
@@ -171,6 +198,8 @@ export function CommitTab({
       setMessage(suggested);
       goStep("message");
     } catch (err) {
+      if (staged) unstageFiles(staged);
+      setStagedPaths(null);
       setError(err instanceof Error ? err.message : String(err));
       goStep("list");
     }
@@ -301,16 +330,14 @@ export function CommitTab({
 
       if (step === "message") {
         if (key.escape) {
-          goStep("list");
-          setError(undefined);
+          cancelPreCommit("Cancelled — unstaged rigit’s selections.");
         }
         return;
       }
 
       if (step === "identity-name" || step === "identity-email") {
         if (key.escape) {
-          setError("Commit cancelled (identity not set). Files remain staged.");
-          goStep("list");
+          cancelPreCommit("Cancelled — unstaged (identity not set).");
         }
         return;
       }
@@ -345,8 +372,13 @@ export function CommitTab({
         setError(undefined);
       } else if (key.return) void beginCommit();
     },
-    { isActive: active && captureKeys },
+    {
+      isActive: active && captureKeys,
+    },
   );
+
+  // re-bind cancel for useInput deps — included via cancelPreCommit in handlers above
+  // eslint: useInput closes over cancelPreCommit
 
   if (!active) return null;
 
@@ -356,7 +388,7 @@ export function CommitTab({
         <>
           <FileList files={files} selected={selected} cursor={cursor} />
           <StatusBar
-            hints="↑↓ move · space toggle · a all/none · enter commit · r refresh · tab · q"
+            hints="↑↓ move · space toggle · a all/none · enter commit · tab · q"
             message={status}
             error={error}
           />
@@ -378,7 +410,10 @@ export function CommitTab({
             onSubmit={(v) => doCommit(v)}
             focus
           />
-          <StatusBar hints="enter confirm · esc cancel" error={error} />
+          <StatusBar
+            hints="enter confirm · esc cancel (unstages)"
+            error={error}
+          />
         </Box>
       )}
 
@@ -402,7 +437,10 @@ export function CommitTab({
             }}
             focus
           />
-          <StatusBar hints="enter continue · esc cancel commit" error={error} />
+          <StatusBar
+            hints="enter continue · esc cancel (unstages)"
+            error={error}
+          />
         </Box>
       )}
 
@@ -432,7 +470,10 @@ export function CommitTab({
             }}
             focus
           />
-          <StatusBar hints="enter save & commit · esc cancel" error={error} />
+          <StatusBar
+            hints="enter save & commit · esc cancel (unstages)"
+            error={error}
+          />
         </Box>
       )}
 

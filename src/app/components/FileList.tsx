@@ -15,21 +15,13 @@ export function FileList({ files, selected, cursor }: Props) {
   if (files.length === 0) {
     return (
       <Box flexDirection="column">
-        <Text dimColor>Working tree clean — nothing left to stage.</Text>
-        <Text dimColor>
-          (Committed files leave this list. Unpushed commits show in Sync
-          above.)
-        </Text>
+        <Text dimColor>Working tree clean — nothing to stage.</Text>
       </Box>
     );
   }
 
   return (
     <Box flexDirection="column">
-      <Text dimColor>
-        Uncommitted changes only · staged = ready for commit · not “pushed”
-        until you push the commit
-      </Text>
       <FileRow
         focused={cursor === 0}
         checked={allOn}

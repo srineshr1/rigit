@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { TabBar } from "./components/TabBar.js";
 import { RepoBanner } from "./components/RepoBanner.js";
@@ -10,6 +10,7 @@ import { CommitTab } from "./tabs/CommitTab.js";
 import { BranchesTab } from "./tabs/BranchesTab.js";
 import { DiffTab } from "./tabs/DiffTab.js";
 import { LogTab } from "./tabs/LogTab.js";
+import { HelpTab } from "./tabs/HelpTab.js";
 import { nextTab, prevTab, type TabId } from "./tabs.js";
 import {
   currentBranch,
@@ -21,6 +22,10 @@ import {
   type SyncStatus,
 } from "../git.js";
 
+function syncKey(s: SyncStatus): string {
+  return JSON.stringify(s);
+}
+
 export function App() {
   const { exit } = useApp();
   const [tab, setTab] = useState<TabId>("commit");
@@ -31,6 +36,7 @@ export function App() {
   const [files, setFiles] = useState<ChangedFile[]>(() => getChangedFiles());
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [inputMode, setInputMode] = useState(false);
+  const lastSyncRef = useRef(syncKey(sync));
 
   const refreshFiles = useCallback(() => {
     const next = getChangedFiles();
@@ -48,14 +54,32 @@ export function App() {
   const refreshRepo = useCallback(() => {
     setBranch(currentBranch());
     setRepoState(getRepoState());
-    setSync(getSyncStatus());
+    const nextSync = getSyncStatus();
+    setSync(nextSync);
     refreshFiles();
+    return nextSync;
   }, [refreshFiles]);
 
   const onActivity = useCallback((a: Activity) => {
     setActivity(a);
-    setSync(getSyncStatus());
+    const nextSync = getSyncStatus();
+    setSync(nextSync);
+    lastSyncRef.current = syncKey(nextSync);
   }, []);
+
+  useEffect(() => {
+    const key = syncKey(sync);
+    if (key !== lastSyncRef.current) {
+      lastSyncRef.current = key;
+      setActivity((prev) => {
+        if (!prev) return prev;
+        if (prev.type === "committed" && sync.kind === "synced") return undefined;
+        if (prev.type === "pushed" && sync.kind === "ahead") return undefined;
+        if (prev.type === "error" && sync.kind === "synced") return undefined;
+        return prev;
+      });
+    }
+  }, [sync]);
 
   useInput((input, key) => {
     if (key.tab) {
@@ -118,6 +142,7 @@ export function App() {
         allPaths={allPaths}
       />
       <LogTab active={tab === "log"} captureKeys={tab === "log"} />
+      <HelpTab active={tab === "help"} />
     </Box>
   );
 }

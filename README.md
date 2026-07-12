@@ -12,29 +12,30 @@ Opens on **Commit/Push** (staging) by default.
 
 ```
  rigit  · main
- [ Commit/Push ]   Branching   Diff   Log
+ [ Commit/Push ]   Branching   Diff   Log   Help
 
  [x] All files
  [ ] src/cli.ts     modified
- [x] README.md      modified
+ [x] README.md      untracked
 ```
 
 | Key | Action |
 |-----|--------|
 | `Tab` / `Shift+Tab` | Switch tabs |
 | `↑` `↓` | Move |
-| `Space` | Toggle file (or **All files** = every path) |
+| `Space` | Toggle file (**All files** selects every path) |
 | `a` | Select all / none |
 | `Enter` | Commit flow (message → push) |
-| `r` | Refresh |
-| `q` / `Esc` | Quit |
+| `Esc` | Cancel pre-commit (**unstages** what rigit staged) |
+| `q` | Quit |
 
 ### Tabs
 
-- **Commit/Push** — stage selected files, auto/custom message, optional push  
-- **Branching** — switch (`enter`) or create (`n`)  
-- **Diff** — browse changes (`s` scope), or **compare two things** side-by-side (`c`)  
+- **Commit/Push** — stage · message · push  
+- **Branching** — switch / create  
+- **Diff** — browse or compare two things side-by-side  
 - **Log** — recent commits  
+- **Help** — file list vs commit vs push explained  
 
 ### Diff → Compare two things
 

@@ -5,24 +5,14 @@ import { SideBySide } from "../components/SideBySide.js";
 import {
   compareLabel,
   getComparePatch,
-  getDiffPatch,
-  getDiffStat,
-  getUntrackedPaths,
   listFileCompareChoices,
   listRefCompareChoices,
   openCompareInPager,
-  openDiffInPager,
-  truncateLines,
   unifiedToSideBySide,
   type CompareChoice,
   type CompareKind,
-  type DiffScope,
   type SideBySideRow,
 } from "../../git.js";
-
-const SCOPES: DiffScope[] = ["unstaged", "staged", "all"];
-
-type Mode = "browse" | "compare";
 
 type Props = {
   active: boolean;
@@ -31,65 +21,30 @@ type Props = {
   allPaths: string[];
 };
 
+/**
+ * Nothing is shown (no patch) until two targets are selected.
+ * Until then: pick list only.
+ */
 export function DiffTab({
   active,
   captureKeys,
   selectedPaths,
   allPaths,
 }: Props) {
-  const [mode, setMode] = useState<Mode>("browse");
-  const [scope, setScope] = useState<DiffScope>("all");
-  const [body, setBody] = useState("");
-  const [status, setStatus] = useState<string | undefined>();
-  const [error, setError] = useState<string | undefined>();
-
-  // compare state
   const [compareKind, setCompareKind] = useState<CompareKind>("refs");
   const [choices, setChoices] = useState<CompareChoice[]>([]);
   const [cursor, setCursor] = useState(0);
-  /** Ordered picks: [left, right] — max 2 */
+  /** Ordered: [left, right] — max 2 */
   const [picks, setPicks] = useState<string[]>([]);
   const [rows, setRows] = useState<SideBySideRow[]>([]);
-  const [showResult, setShowResult] = useState(false);
+  const [status, setStatus] = useState<string | undefined>();
+  const [error, setError] = useState<string | undefined>();
+  /** false = viewing diff; true = choosing (no diff body) */
+  const [picking, setPicking] = useState(true);
 
-  const paths =
-    selectedPaths.length > 0
-      ? selectedPaths
-      : allPaths.length > 0
-        ? allPaths
-        : undefined;
-
-  const reloadBrowse = useCallback(() => {
-    try {
-      const stat = getDiffStat(scope, paths, false);
-      const patch = getDiffPatch(scope, paths, {
-        color: false,
-        maxChars: 8_000,
-      });
-      let text = "";
-      if (stat) text += stat + "\n\n";
-      if (patch) text += patch;
-
-      if (scope === "unstaged" || scope === "all") {
-        let untracked = getUntrackedPaths();
-        if (paths?.length) {
-          const set = new Set(paths);
-          untracked = untracked.filter((u) => set.has(u));
-        }
-        if (untracked.length) {
-          text +=
-            (text ? "\n\n" : "") +
-            "Untracked:\n" +
-            untracked.map((u) => `  + ${u}`).join("\n");
-        }
-      }
-
-      setBody(text.trim() || "No changes in this scope.");
-      setError(undefined);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, [scope, paths]);
+  const leftPick = picks[0];
+  const rightPick = picks[1];
+  const showDiff = !picking && picks.length === 2 && !!leftPick && !!rightPick;
 
   const loadChoices = useCallback(() => {
     if (compareKind === "refs") {
@@ -107,124 +62,85 @@ export function DiffTab({
           maxChars: 40_000,
         });
         setRows(unifiedToSideBySide(patch, swap));
-        setShowResult(true);
         setError(undefined);
-        setStatus(`Comparing ${compareLabel(left)} → ${compareLabel(right)}`);
+        setStatus(`${compareLabel(left)}  →  ${compareLabel(right)}`);
+        setPicking(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
-        setShowResult(false);
+        setRows([]);
+        setPicking(true);
       }
     },
     [compareKind],
   );
 
   useEffect(() => {
-    if (!active) return;
-    if (mode === "browse") reloadBrowse();
-    else loadChoices();
-  }, [active, mode, reloadBrowse, loadChoices]);
+    if (active) loadChoices();
+  }, [active, loadChoices]);
 
-  // Auto-run when two picks set
+  // When we have exactly 2 picks, generate and show the diff
   useEffect(() => {
-    if (mode === "compare" && picks.length === 2 && picks[0] && picks[1]) {
+    if (!active) return;
+    if (picks.length === 2 && picks[0] && picks[1]) {
       runCompare(picks[0], picks[1]);
-    } else if (picks.length < 2) {
-      setShowResult(false);
+    } else {
       setRows([]);
-    }
-  }, [picks, mode, runCompare]);
-
-  const leftPick = picks[0];
-  const rightPick = picks[1];
-
-  const togglePick = useCallback(
-    (id: string) => {
-      setPicks((prev) => {
-        if (prev.includes(id)) {
-          return prev.filter((p) => p !== id);
-        }
-        if (prev.length >= 2) {
-          // replace right (second) pick
-          return [prev[0]!, id];
-        }
-        return [...prev, id];
-      });
+      setPicking(true);
       setStatus(undefined);
-    },
-    [],
-  );
+    }
+  }, [picks, compareKind, active, runCompare]);
+
+  const togglePick = useCallback((id: string) => {
+    setPicks((prev) => {
+      if (prev.includes(id)) return prev.filter((p) => p !== id);
+      if (prev.length >= 2) return [prev[0]!, id];
+      return [...prev, id];
+    });
+    setError(undefined);
+  }, []);
 
   useInput(
     (input, key) => {
       if (!active || !captureKeys) return;
 
-      if (mode === "browse") {
-        if (input === "s" || input === "S") {
-          setScope((s) => {
-            const i = SCOPES.indexOf(s);
-            return SCOPES[(i + 1) % SCOPES.length]!;
-          });
+      if (showDiff) {
+        if (key.escape || input === "b" || input === "B") {
+          setPicking(true);
           setStatus(undefined);
-        } else if (input === "c" || input === "C") {
-          setMode("compare");
-          setPicks([]);
-          setShowResult(false);
-          setStatus("Pick 2 items (space). First = left (−), second = right (+).");
-        } else if (input === "p" || input === "P") {
-          try {
-            openDiffInPager(scope, paths);
+          return;
+        }
+        if (input === "p" || input === "P") {
+          if (leftPick && rightPick) {
+            openCompareInPager(compareKind, leftPick, rightPick);
             setStatus("Opened pager.");
-          } catch (err) {
-            setError(err instanceof Error ? err.message : String(err));
           }
-        } else if (input === "r" || input === "R" || key.return) {
-          reloadBrowse();
-          setStatus("Refreshed.");
+          return;
         }
-        return;
-      }
-
-      // compare mode
-      if (key.escape || input === "b" || input === "B") {
-        if (showResult && picks.length === 2) {
-          // first esc hides result focus back to list? or exit compare
-          setShowResult(false);
-          setStatus("Selection kept — space to change picks, enter to view.");
-        } else {
-          setMode("browse");
+        if (input === "r" || input === "R") {
+          if (leftPick && rightPick) runCompare(leftPick, rightPick);
+          return;
+        }
+        if (input === "m" || input === "M") {
+          setCompareKind((k) => (k === "refs" ? "files" : "refs"));
           setPicks([]);
-          setShowResult(false);
-          setStatus(undefined);
+          setPicking(true);
+          setRows([]);
+          return;
         }
         return;
       }
 
+      // pick mode
       if (input === "m" || input === "M") {
         setCompareKind((k) => (k === "refs" ? "files" : "refs"));
         setPicks([]);
-        setShowResult(false);
-        setStatus(
-          compareKind === "refs"
-            ? "Compare files: pick 2 paths."
-            : "Compare refs: pick 2 branches/commits.",
-        );
-        return;
-      }
-
-      if (input === "p" || input === "P") {
-        if (leftPick && rightPick) {
-          openCompareInPager(compareKind, leftPick, rightPick);
-          setStatus("Opened pager.");
-        } else {
-          setError("Select 2 items first.");
-        }
+        setRows([]);
+        setPicking(true);
         return;
       }
 
       if (input === "r" || input === "R") {
         loadChoices();
-        if (leftPick && rightPick) runCompare(leftPick, rightPick);
-        setStatus("Refreshed.");
         return;
       }
 
@@ -247,7 +163,12 @@ export function DiffTab({
         const item = choices[cursor];
         if (!item) return;
         setPicks((prev) => {
-          const right = prev[1] && prev[1] !== item.id ? prev[1] : prev[0] !== item.id ? prev[0] : undefined;
+          const right =
+            prev[1] && prev[1] !== item.id
+              ? prev[1]
+              : prev[0] !== item.id
+                ? prev[0]
+                : undefined;
           return right ? [item.id, right] : [item.id];
         });
         return;
@@ -264,13 +185,8 @@ export function DiffTab({
       }
 
       if (key.return) {
-        if (leftPick && rightPick) {
-          runCompare(leftPick, rightPick);
-          setShowResult(true);
-        } else {
-          const item = choices[cursor];
-          if (item) togglePick(item.id);
-        }
+        const item = choices[cursor];
+        if (item) togglePick(item.id);
       }
     },
     { isActive: active && captureKeys },
@@ -300,61 +216,15 @@ export function DiffTab({
     }));
   }
 
-  if (mode === "browse") {
-    const pathNote =
-      selectedPaths.length > 0
-        ? `${selectedPaths.length} selected file(s)`
-        : allPaths.length > 0
-          ? "all changed files"
-          : "no files";
-
+  if (showDiff && leftPick && rightPick) {
     return (
       <Box flexDirection="column">
         <Text>
-          Scope: <Text color="cyan">{scope}</Text>
-          <Text dimColor>
-            {" "}
-            · {pathNote} · press <Text color="cyan">c</Text> to compare two things
-          </Text>
+          <Text color="red">− {compareLabel(leftPick)}</Text>
+          <Text dimColor>  vs  </Text>
+          <Text color="green">+ {compareLabel(rightPick)}</Text>
         </Text>
-        <Box flexDirection="column" marginTop={1}>
-          {truncateLines(body, 40)
-            .split("\n")
-            .map((line, i) => (
-              <Text key={i}>{line || " "}</Text>
-            ))}
-        </Box>
-        <StatusBar
-          hints="c compare 2 · s scope · p pager · r refresh · tab · q"
-          message={status}
-          error={error}
-        />
-      </Box>
-    );
-  }
-
-  // compare mode
-  return (
-    <Box flexDirection="column">
-      <Text>
-        Compare{" "}
-        <Text color="cyan">{compareKind === "refs" ? "refs/commits" : "files"}</Text>
-        <Text dimColor> · m switch kind</Text>
-      </Text>
-      <Text>
-        <Text color="red">− Left: </Text>
-        <Text color="red" bold>
-          {leftPick ? compareLabel(leftPick) : "(pick 1st)"}
-        </Text>
-        <Text dimColor>   </Text>
-        <Text color="green">+ Right: </Text>
-        <Text color="green" bold>
-          {rightPick ? compareLabel(rightPick) : "(pick 2nd)"}
-        </Text>
-      </Text>
-
-      {showResult && leftPick && rightPick ? (
-        <Box flexDirection="column" marginTop={1}>
+        <Box marginTop={1}>
           <SideBySide
             leftTitle={compareLabel(leftPick)}
             rightTitle={compareLabel(rightPick)}
@@ -362,47 +232,75 @@ export function DiffTab({
             maxRows={28}
           />
         </Box>
-      ) : (
-        <Box flexDirection="column" marginTop={1}>
-          <Text dimColor>
-            Space select (max 2) · 1 set left · 2 set right · enter view
-          </Text>
-          {windowedChoices(choices, cursor, 16).map(({ item, index }) => {
-            const focused = index === cursor;
-            const ord = pickIndex.get(item.id);
-            const mark = ord === 1 ? "1" : ord === 2 ? "2" : " ";
-            const box = ord ? `[${mark}]` : "[ ]";
-            return (
-              <Box key={item.id}>
-                <Text color={focused ? "cyan" : undefined}>
-                  {focused ? "❯" : " "} {box} {item.label}
-                </Text>
-                {item.hint ? (
-                  <Text dimColor>
-                    {"  "}
-                    {item.hint}
-                  </Text>
-                ) : null}
-              </Box>
-            );
-          })}
-        </Box>
-      )}
+        <StatusBar
+          hints="b/esc change picks · p pager · r refresh · m refs/files · tab · q"
+          message={status}
+          error={error}
+        />
+      </Box>
+    );
+  }
 
-      {/* When result showing, still allow a compact pick strip via toggling showResult off */}
-      {showResult ? (
-        <StatusBar
-          hints="b/esc back to picks · m kind · p pager · r refresh · space on picks after back"
-          message={status}
-          error={error}
-        />
-      ) : (
-        <StatusBar
-          hints="space toggle · 1 left · 2 right · enter side-by-side · m refs/files · b browse · p pager"
-          message={status}
-          error={error}
-        />
-      )}
+  // Pick list only — no diff body
+  return (
+    <Box flexDirection="column">
+      <Text>
+        Select <Text color="cyan">2</Text> to compare
+        <Text dimColor>
+          {" "}
+          · {compareKind === "refs" ? "refs/commits" : "files"} · m switch
+        </Text>
+      </Text>
+      <Text>
+        <Text color="red">− </Text>
+        <Text
+          color={leftPick ? "red" : undefined}
+          dimColor={!leftPick}
+          bold={!!leftPick}
+        >
+          {leftPick ? compareLabel(leftPick) : "—"}
+        </Text>
+        <Text dimColor>{"   "}</Text>
+        <Text color="green">+ </Text>
+        <Text
+          color={rightPick ? "green" : undefined}
+          dimColor={!rightPick}
+          bold={!!rightPick}
+        >
+          {rightPick ? compareLabel(rightPick) : "—"}
+        </Text>
+        {picks.length < 2 ? (
+          <Text dimColor>{`  (${2 - picks.length} more)`}</Text>
+        ) : null}
+      </Text>
+
+      <Box flexDirection="column" marginTop={1}>
+        {windowedChoices(choices, cursor, 16).map(({ item, index }) => {
+          const focused = index === cursor;
+          const ord = pickIndex.get(item.id);
+          const mark = ord === 1 ? "1" : ord === 2 ? "2" : " ";
+          const box = ord ? `[${mark}]` : "[ ]";
+          return (
+            <Box key={item.id}>
+              <Text color={focused ? "cyan" : undefined}>
+                {focused ? "❯" : " "} {box} {item.label}
+              </Text>
+              {item.hint ? (
+                <Text dimColor>
+                  {"  "}
+                  {item.hint}
+                </Text>
+              ) : null}
+            </Box>
+          );
+        })}
+      </Box>
+
+      <StatusBar
+        hints="space pick (need 2) · 1 left · 2 right · m refs/files · tab · q"
+        message={status}
+        error={error}
+      />
     </Box>
   );
 }
