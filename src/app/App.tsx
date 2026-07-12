@@ -9,6 +9,7 @@ import {
 import { CommitTab } from "./tabs/CommitTab.js";
 import { BranchesTab } from "./tabs/BranchesTab.js";
 import { DiffTab } from "./tabs/DiffTab.js";
+import { GitignoreTab } from "./tabs/GitignoreTab.js";
 import { LogTab } from "./tabs/LogTab.js";
 import { HelpTab } from "./tabs/HelpTab.js";
 import { nextTab, prevTab, type TabId } from "./tabs.js";
@@ -140,6 +141,12 @@ export function App() {
         captureKeys={tab === "diff"}
         selectedPaths={selectedList}
         allPaths={allPaths}
+      />
+      <GitignoreTab
+        active={tab === "gitignore"}
+        captureKeys={tab === "gitignore"}
+        onInputMode={setInputMode}
+        onChanged={refreshFiles}
       />
       <LogTab active={tab === "log"} captureKeys={tab === "log"} />
       <HelpTab active={tab === "help"} />

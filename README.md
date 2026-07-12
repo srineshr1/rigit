@@ -33,7 +33,8 @@ Opens on **Commit/Push** (staging) by default.
 
 - **Commit/Push** — stage · message · push  
 - **Branching** — switch / create  
-- **Diff** — browse or compare two things side-by-side  
+- **Diff** — pick 2 things to compare side-by-side  
+- **Gitignore** — view / add / remove `.gitignore` patterns  
 - **Log** — recent commits  
 - **Help** — file list vs commit vs push explained  
 

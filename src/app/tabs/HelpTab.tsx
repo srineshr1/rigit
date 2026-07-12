@@ -53,6 +53,8 @@ export function HelpTab({ active }: Props) {
       <Text dimColor> ↑↓ space a enter  stage & commit flow</Text>
       <Text dimColor> c (Diff)         compare two things side-by-side</Text>
       <Text dimColor> n (Branching)    new branch</Text>
+      <Text dimColor> a (Gitignore)    pick files to ignore</Text>
+      <Text dimColor>   o open folder · c close · space select · enter add</Text>
       <Text dimColor> q                quit</Text>
       <Text> </Text>
       <Text bold>Cancel safety</Text>
