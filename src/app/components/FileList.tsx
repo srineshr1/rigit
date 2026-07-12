@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
 import type { ChangedFile } from "../../git.js";
-import { statusLabel } from "../../git.js";
+import { describeChange } from "../../git.js";
 
 type Props = {
   files: ChangedFile[];
@@ -15,28 +15,40 @@ export function FileList({ files, selected, cursor }: Props) {
   if (files.length === 0) {
     return (
       <Box flexDirection="column">
-        <Text dimColor>Working tree clean — nothing to stage.</Text>
+        <Text dimColor>Working tree clean — nothing left to stage.</Text>
+        <Text dimColor>
+          (Committed files leave this list. Unpushed commits show in Sync
+          above.)
+        </Text>
       </Box>
     );
   }
 
   return (
     <Box flexDirection="column">
+      <Text dimColor>
+        Uncommitted changes only · staged = ready for commit · not “pushed”
+        until you push the commit
+      </Text>
       <FileRow
         focused={cursor === 0}
         checked={allOn}
         label="All files"
         hint={`${files.length}`}
       />
-      {files.map((f, i) => (
-        <FileRow
-          key={f.path}
-          focused={cursor === i + 1}
-          checked={selected.has(f.path)}
-          label={f.path}
-          hint={statusLabel(f.status)}
-        />
-      ))}
+      {files.map((f, i) => {
+        const d = describeChange(f.status);
+        return (
+          <FileRow
+            key={f.path}
+            focused={cursor === i + 1}
+            checked={selected.has(f.path)}
+            label={f.path}
+            hint={d.label}
+            kind={d.kind}
+          />
+        );
+      })}
     </Box>
   );
 }
@@ -46,21 +58,36 @@ function FileRow({
   checked,
   label,
   hint,
+  kind,
 }: {
   focused: boolean;
   checked: boolean;
   label: string;
   hint?: string;
+  kind?: ReturnType<typeof describeChange>["kind"];
 }) {
   const box = checked ? "[x]" : "[ ]";
   const prefix = focused ? "❯" : " ";
+  const hintColor =
+    kind === "staged"
+      ? "green"
+      : kind === "unstaged"
+        ? "yellow"
+        : kind === "untracked"
+          ? "cyan"
+          : kind === "both"
+            ? "magenta"
+            : kind === "unmerged"
+              ? "red"
+              : undefined;
+
   return (
     <Box>
       <Text color={focused ? "cyan" : undefined}>
         {prefix} {box} {label}
       </Text>
       {hint ? (
-        <Text dimColor>
+        <Text color={hintColor} dimColor={!hintColor}>
           {"  "}
           {hint}
         </Text>

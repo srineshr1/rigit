@@ -2,6 +2,10 @@ import { useCallback, useMemo, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { TabBar } from "./components/TabBar.js";
 import { RepoBanner } from "./components/RepoBanner.js";
+import {
+  ActivityBanner,
+  type Activity,
+} from "./components/ActivityBanner.js";
 import { CommitTab } from "./tabs/CommitTab.js";
 import { BranchesTab } from "./tabs/BranchesTab.js";
 import { DiffTab } from "./tabs/DiffTab.js";
@@ -11,8 +15,10 @@ import {
   currentBranch,
   getChangedFiles,
   getRepoState,
+  getSyncStatus,
   type ChangedFile,
   type RepoState,
+  type SyncStatus,
 } from "../git.js";
 
 export function App() {
@@ -20,6 +26,8 @@ export function App() {
   const [tab, setTab] = useState<TabId>("commit");
   const [branch, setBranch] = useState(() => currentBranch());
   const [repoState, setRepoState] = useState<RepoState>(() => getRepoState());
+  const [sync, setSync] = useState<SyncStatus>(() => getSyncStatus());
+  const [activity, setActivity] = useState<Activity | undefined>();
   const [files, setFiles] = useState<ChangedFile[]>(() => getChangedFiles());
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [inputMode, setInputMode] = useState(false);
@@ -40,8 +48,14 @@ export function App() {
   const refreshRepo = useCallback(() => {
     setBranch(currentBranch());
     setRepoState(getRepoState());
+    setSync(getSyncStatus());
     refreshFiles();
   }, [refreshFiles]);
+
+  const onActivity = useCallback((a: Activity) => {
+    setActivity(a);
+    setSync(getSyncStatus());
+  }, []);
 
   useInput((input, key) => {
     if (key.tab) {
@@ -77,6 +91,7 @@ export function App() {
         <TabBar active={tab} />
       </Box>
 
+      <ActivityBanner activity={activity} sync={sync} />
       <RepoBanner state={repoState} />
 
       <CommitTab
@@ -88,6 +103,7 @@ export function App() {
         captureKeys={tab === "commit"}
         onInputMode={setInputMode}
         onRepoChanged={refreshRepo}
+        onActivity={onActivity}
       />
       <BranchesTab
         active={tab === "branches"}

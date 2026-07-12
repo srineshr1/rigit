@@ -6,7 +6,6 @@ import { TextPrompt } from "../components/TextPrompt.js";
 import {
   addRemote,
   commit,
-  currentBranch,
   getStagedDiffForAi,
   getStagedDiffSummary,
   hasIdentity,
@@ -17,6 +16,7 @@ import {
   type ChangedFile,
 } from "../../git.js";
 import { generateCommitMessage } from "../../message.js";
+import type { Activity } from "../components/ActivityBanner.js";
 
 type Step =
   | "list"
@@ -37,6 +37,7 @@ type Props = {
   captureKeys: boolean;
   onInputMode?: (v: boolean) => void;
   onRepoChanged?: () => void;
+  onActivity?: (a: Activity) => void;
 };
 
 function isInputStep(s: Step): boolean {
@@ -58,6 +59,7 @@ export function CommitTab({
   captureKeys,
   onInputMode,
   onRepoChanged,
+  onActivity,
 }: Props) {
   const [cursor, setCursor] = useState(0);
   const [step, setStep] = useState<Step>("list");
@@ -70,6 +72,7 @@ export function CommitTab({
   const [remoteName, setRemoteName] = useState("origin");
   const [remoteUrl, setRemoteUrl] = useState("");
   const [pendingMessage, setPendingMessage] = useState<string | undefined>();
+  const [lastHash, setLastHash] = useState("");
 
   const goStep = useCallback(
     (s: Step) => {
@@ -127,9 +130,11 @@ export function CommitTab({
       setBusyLabel("Committing…");
       try {
         const hash = commit(trimmed);
+        setLastHash(hash);
         setStatus(`Committed ${hash} — ${trimmed}`);
         setPendingMessage(undefined);
         onRepoChanged?.();
+        // Not pushed yet — banner updates after push Y/N
         goStep("push");
       } catch (err) {
         const text = err instanceof Error ? err.message : String(err);
@@ -193,7 +198,13 @@ export function CommitTab({
   const doPush = useCallback(
     (yes: boolean) => {
       if (!yes) {
-        setStatus((s) => `${s ?? "Committed"} (not pushed).`);
+        setStatus(`${status ?? "Committed"} (not pushed).`);
+        onActivity?.({
+          type: "committed",
+          hash: lastHash,
+          message: status ?? "Committed locally",
+          pushed: false,
+        });
         finishAfterCommit();
         return;
       }
@@ -202,7 +213,15 @@ export function CommitTab({
       try {
         const result = push();
         if (result.ok) {
-          setStatus(`Pushed on ${currentBranch()}.`);
+          setStatus(
+            `✓ Pushed ${result.hash} → ${result.remote ?? result.branch}`,
+          );
+          onActivity?.({
+            type: "pushed",
+            hash: result.hash,
+            remote: result.remote,
+            branch: result.branch,
+          });
           finishAfterCommit();
           return;
         }
@@ -216,13 +235,19 @@ export function CommitTab({
         }
         setError(result.error);
         setStatus((s) => `${s ?? "Committed"} but push failed.`);
+        onActivity?.({
+          type: "error",
+          message: `Push failed — commit is still local only. ${result.error.split("\n")[0]}`,
+        });
         finishAfterCommit();
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        const msg = err instanceof Error ? err.message : String(err);
+        setError(msg);
+        onActivity?.({ type: "error", message: msg });
         finishAfterCommit();
       }
     },
-    [finishAfterCommit, goStep],
+    [finishAfterCommit, goStep, onActivity, status, lastHash],
   );
 
   const addRemoteAndPush = useCallback(
@@ -239,18 +264,34 @@ export function CommitTab({
         addRemote(n, u);
         const result = push();
         if (result.ok) {
-          setStatus(`Remote ${n} added · pushed on ${currentBranch()}.`);
+          setStatus(
+            `✓ Remote ${n} added · pushed ${result.hash} → ${result.remote ?? result.branch}`,
+          );
+          onActivity?.({
+            type: "pushed",
+            hash: result.hash,
+            remote: result.remote,
+            branch: result.branch,
+          });
         } else {
           setError(result.error);
           setStatus(`Remote ${n} added · push failed (commit is local).`);
+          onActivity?.({
+            type: "error",
+            message: `Remote added but push failed — commit is local only.`,
+          });
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
         setStatus("Committed locally; could not add remote / push.");
+        onActivity?.({
+          type: "error",
+          message: "Could not add remote / push — commit is local only.",
+        });
       }
       finishAfterCommit();
     },
-    [finishAfterCommit, goStep],
+    [finishAfterCommit, goStep, onActivity],
   );
 
   useInput(
@@ -277,6 +318,12 @@ export function CommitTab({
       if (step === "remote-name" || step === "remote-url") {
         if (key.escape) {
           setStatus((s) => `${s ?? "Committed"} (not pushed — no remote).`);
+          onActivity?.({
+            type: "committed",
+            hash: lastHash,
+            message: "Committed locally — not pushed (no remote)",
+            pushed: false,
+          });
           finishAfterCommit();
         }
         return;

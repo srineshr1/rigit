@@ -83,21 +83,56 @@ function unquoteGitPath(raw: string): string {
 }
 
 function formatStatus(status: string): string {
-  const code = status.replace(/\s/g, "") || "??";
-  const map: Record<string, string> = {
-    M: "modified",
-    A: "added",
-    D: "deleted",
-    R: "renamed",
-    C: "copied",
-    U: "unmerged",
-    "?": "untracked",
-    "??": "untracked",
-    MM: "modified",
-    AM: "added",
-    MD: "modified",
-  };
-  return map[code] ?? map[code[0] ?? ""] ?? code;
+  return describeChange(status).label;
+}
+
+/**
+ * Human label for porcelain XY codes.
+ * Index (staged) is the first char, worktree is the second.
+ */
+export function describeChange(status: string): {
+  label: string;
+  /** rough category for coloring */
+  kind: "staged" | "unstaged" | "both" | "untracked" | "unmerged" | "other";
+} {
+  const xy = (status + "  ").slice(0, 2);
+  const x = xy[0] ?? " ";
+  const y = xy[1] ?? " ";
+
+  if (x === "?" && y === "?") {
+    return { label: "untracked", kind: "untracked" };
+  }
+  if (x === "U" || y === "U" || (x === "A" && y === "A") || (x === "D" && y === "D")) {
+    return { label: "unmerged", kind: "unmerged" };
+  }
+
+  const staged = x !== " " && x !== "?";
+  const unstaged = y !== " " && y !== "?";
+
+  if (staged && unstaged) {
+    return { label: "staged+unstaged", kind: "both" };
+  }
+  if (staged) {
+    const verb =
+      x === "A" ? "staged new" :
+      x === "D" ? "staged delete" :
+      x === "R" ? "staged rename" :
+      x === "M" ? "staged" :
+      `staged (${x})`;
+    return { label: verb, kind: "staged" };
+  }
+  if (unstaged) {
+    const verb =
+      y === "D" ? "deleted" :
+      y === "M" ? "modified" :
+      `changed (${y})`;
+    return { label: verb, kind: "unstaged" };
+  }
+  return { label: xy.trim() || "changed", kind: "other" };
+}
+
+export function statusLabel(status: string): string {
+  return describeChange(status).label;
 }
 
 export function stageFiles(paths: string[] | "all"): void {
@@ -165,14 +200,43 @@ export function hasUpstream(): boolean {
 }
 
 export type PushResult =
-  | { ok: true; detail: string }
+  | {
+      ok: true;
+      detail: string;
+      hash: string;
+      branch: string;
+      remote?: string;
+    }
   | { ok: false; error: string; code?: "no_remote" | "rejected" | "other" };
+
+function pushSuccessDetail(remoteHint?: string): PushResult {
+  const hash = runGit(["rev-parse", "--short", "HEAD"], {
+    allowFailure: true,
+  }).stdout.trim();
+  const branch = currentBranch();
+  let remote = remoteHint;
+  if (!remote) {
+    const up = runGit(["rev-parse", "--abbrev-ref", "@{upstream}"], {
+      allowFailure: true,
+    }).stdout.trim();
+    if (up) remote = up;
+  }
+  return {
+    ok: true,
+    hash,
+    branch,
+    remote,
+    detail: remote
+      ? `Pushed ${hash} → ${remote}`
+      : `Pushed ${hash} on ${branch}`,
+  };
+}
 
 export function push(): PushResult {
   if (hasUpstream()) {
     const r = runGit(["push"], { allowFailure: true });
     if (r.status === 0) {
-      return { ok: true, detail: r.stderr.trim() || r.stdout.trim() || "Pushed." };
+      return pushSuccessDetail();
     }
     return {
       ok: false,
@@ -184,10 +248,7 @@ export function push(): PushResult {
   if (hasRemote("origin")) {
     const r = runGit(["push", "-u", "origin", "HEAD"], { allowFailure: true });
     if (r.status === 0) {
-      return {
-        ok: true,
-        detail: r.stderr.trim() || r.stdout.trim() || "Pushed (set upstream origin).",
-      };
+      return pushSuccessDetail(`origin/${currentBranch()}`);
     }
     return {
       ok: false,
@@ -202,10 +263,7 @@ export function push(): PushResult {
     const name = remotes[0]!.name;
     const r = runGit(["push", "-u", name, "HEAD"], { allowFailure: true });
     if (r.status === 0) {
-      return {
-        ok: true,
-        detail: r.stderr.trim() || r.stdout.trim() || `Pushed (set upstream ${name}).`,
-      };
+      return pushSuccessDetail(`${name}/${currentBranch()}`);
     }
     return {
       ok: false,
@@ -219,6 +277,64 @@ export function push(): PushResult {
     error: "No remote configured. Add one to push.",
     code: "no_remote",
   };
+}
+
+/** How local branch compares to its upstream (committed vs pushed). */
+export type SyncStatus =
+  | { kind: "empty" }
+  | { kind: "no_remote" }
+  | { kind: "no_upstream"; branch: string }
+  | { kind: "synced"; upstream: string; hash: string }
+  | { kind: "ahead"; upstream: string; ahead: number; hash: string }
+  | { kind: "behind"; upstream: string; behind: number; hash: string }
+  | {
+      kind: "diverged";
+      upstream: string;
+      ahead: number;
+      behind: number;
+      hash: string;
+    };
+
+export function getSyncStatus(): SyncStatus {
+  if (!hasCommits()) return { kind: "empty" };
+
+  const hash = runGit(["rev-parse", "--short", "HEAD"], {
+    allowFailure: true,
+  }).stdout.trim();
+
+  if (!hasUpstream()) {
+    if (listRemotes().length === 0) return { kind: "no_remote" };
+    return { kind: "no_upstream", branch: currentBranch() };
+  }
+
+  const upstream = runGit(["rev-parse", "--abbrev-ref", "@{upstream}"], {
+    allowFailure: true,
+  }).stdout.trim();
+
+  const counts = runGit(
+    ["rev-list", "--left-right", "--count", "@{upstream}...HEAD"],
+    { allowFailure: true },
+  ).stdout.trim();
+  // format: "<behind>\t<ahead>"
+  const parts = counts.split(/\s+/).map((n) => Number(n) || 0);
+  const behind = parts[0] ?? 0;
+  const ahead = parts[1] ?? 0;
+
+  if (ahead === 0 && behind === 0) {
+    return { kind: "synced", upstream, hash };
+  }
+  if (ahead > 0 && behind === 0) {
+    return { kind: "ahead", upstream, ahead, hash };
+  }
+  if (behind > 0 && ahead === 0) {
+    return { kind: "behind", upstream, behind, hash };
+  }
+  return { kind: "diverged", upstream, ahead, behind, hash };
+}
+
+export function headShort(): string {
+  return runGit(["rev-parse", "--short", "HEAD"], { allowFailure: true })
+    .stdout.trim();
 }
 
 function formatPushError(raw: string): string {
@@ -870,7 +986,3 @@ export function getRecentLog(limit = 15): string[] {
     .filter(Boolean);
 }
 
-/** Human-readable status label for a porcelain code */
-export function statusLabel(status: string): string {
-  return formatStatus(status);
-}
