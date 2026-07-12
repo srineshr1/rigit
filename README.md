@@ -1,96 +1,166 @@
 # rigit
 
-Single-command **tabbed** TUI for git staging, commit, push, branches, and diff.
+### Git, without the ceremony.
+
+**One command.** Stage → commit → push. Branch, diff, and edit `.gitignore` without leaving the terminal.
+
+[![npm](https://img.shields.io/npm/v/@srinesh/rigit?style=flat-square&color=0ea5e9)](https://www.npmjs.com/package/@srinesh/rigit)
+[![node](https://img.shields.io/node/v/@srinesh/rigit?style=flat-square)](https://www.npmjs.com/package/@srinesh/rigit)
+[![license](https://img.shields.io/npm/l/@srinesh/rigit?style=flat-square)](./package.json)
 
 ```bash
-rigit
+npx @srinesh/rigit
+# or
+npm i -g @srinesh/rigit && rigit
 ```
 
-Opens on **Commit/Push** (staging) by default.
+---
 
-## UI
+## Why rigit?
+
+| Instead of… | You get… |
+|-------------|----------|
+| `git status` → `add` → `commit` → `push` | One keyboard-driven flow |
+| Guessing what’s staged vs pushed | Clear file list + **Sync** line + **PUSHED** / **COMMITTED** banners |
+| Fighting a bare repo | Guided **init**, identity, and remote setup |
+| Jumping to an editor for `.gitignore` | Browse the tree, pick files, open folders with `o` |
+
+Built for people who live in the terminal — not another full IDE.
+
+---
+
+## Preview
 
 ```
- rigit  · main
- [ Commit/Push ]   Branching   Diff   Log   Help
+ ┌─ rigit ─┐ · main                          tab · q
 
- [x] All files
- [ ] src/cli.ts     modified
- [x] README.md      untracked
+  [ Commit/Push ]  Branching  Diff  Gitignore  Log  Help
+
+  Sync · ✓ up to date with origin/main
+  [ PUSHED ]  Code is on the remote — a1b2c3d → origin/main
+
+  ❯ [x] All files                         4
+    [x] src/cli.ts                        modified
+    [ ] README.md                         untracked
+    [x] package.json                      staged
+
+  ↑↓ move · space toggle · a all · enter commit · tab · q
 ```
 
-| Key | Action |
-|-----|--------|
-| `Tab` / `Shift+Tab` | Switch tabs |
-| `↑` `↓` | Move |
-| `Space` | Toggle file (**All files** selects every path) |
-| `a` | Select all / none |
-| `Enter` | Commit flow (message → push) |
-| `Esc` | Cancel pre-commit (**unstages** what rigit staged) |
-| `q` | Quit |
+---
 
-### Tabs
+## Features
 
-- **Commit/Push** — stage · message · push  
-- **Branching** — switch / create  
-- **Diff** — pick 2 things to compare side-by-side  
-- **Gitignore** — view / add / remove `.gitignore` patterns  
-- **Log** — recent commits  
-- **Help** — file list vs commit vs push explained  
+### Commit / Push
+Pick files, get a suggested message (or type your own), confirm push.  
+**All files** selects everything. Esc after staging **unstages** cleanly.
 
-### Diff → Compare two things
+### Branching
+Switch branches or create a new one without raw `git switch` flags.
 
-Press **`c`** on the Diff tab:
+### Diff
+Pick **two** things (branches, commits, working tree, or files) — then see a **side-by-side** (− red / + green) compare. Nothing shows until you pick two.
 
-1. Pick **two** items with `space` (or `1` left / `2` right)  
-   - **`m`** toggles **refs/commits** vs **files**  
-   - Refs include Working tree, Staged, HEAD, branches, recent commits  
-2. Side-by-side view: **red (−) left** / **green (+) right**  
-3. **`p`** opens full diff in pager · **`b`** back to picks/browse  
+### Gitignore
+Browse the repo tree:
+- **`o`** open folder · **`c`** close folder  
+- **space** select · **enter** add to `.gitignore`  
+Also: type a custom pattern, use presets, delete lines.
 
+### Log & Help
+Recent commits at a glance, plus a short mental model of *files → commit → push*.
+
+### Smart setup
+| Situation | rigit does |
+|-----------|------------|
+| No git repo | Offers `git init` |
+| No name / email | Prompts and sets local config |
+| No remote on push | Asks for URL, then pushes |
+| Merge / rebase / detached | Warning banner |
+| Push rejected | Shows git’s error + hints (**never** force-pushes) |
+
+---
 
 ## Install
 
 ```bash
-# global CLI (command is still `rigit`)
+# try once
+npx @srinesh/rigit
+
+# install globally
 npm install -g @srinesh/rigit
 rigit
-
-# or one-off
-npx @srinesh/rigit
 ```
 
 ### From source
 
 ```bash
+git clone <your-repo-url>
+cd qit
 npm install
 npm run build
-npm link          # optional local global link
-npm run dev       # development
+npm link          # optional
+npm run dev       # run from source
 ```
 
-## Auto commit messages
+---
 
-- **Default:** heuristic from staged paths / diff  
-- **Optional AI:** `export XAI_API_KEY=...` (xAI `grok-4.5`)
+## Keyboard cheatsheet
 
-## Setup & edge cases
+| Key | Where | Action |
+|-----|--------|--------|
+| `Tab` / `Shift+Tab` | Anywhere | Switch tabs |
+| `↑` `↓` | Lists | Move |
+| `Space` | Commit / Diff / Gitignore | Select |
+| `a` | Commit | Select all / none |
+| `a` | Gitignore | Open file picker |
+| `Enter` | Commit | Stage → message → push |
+| `o` / `c` | Gitignore browse | Open / close folder |
+| `Esc` | Pre-commit | Cancel & unstage |
+| `q` | Main UI | Quit |
 
-`rigit` guides you through common situations instead of only failing:
+---
 
-| Situation | What happens |
-|-----------|----------------|
-| **No git repo** | Asks to run `git init` in the current folder |
-| **No user.name / email** | Prompts for name + email (`git config --local`) |
-| **No remote** (on push) | Offers to add a remote URL, then push |
-| **Empty repo** | Banner + friendly Log/Diff (no crash on missing HEAD) |
-| **Merge / rebase / cherry-pick / revert** | Warning banner |
-| **Detached HEAD** | Warning banner |
-| **Push rejected** | Shows git error + hints (no force-push) |
-| **git missing / no TTY** | Clear error and exit |
+## Commit messages
+
+- **Default:** short heuristic from your staged paths  
+- **Smarter (optional):** set an xAI key and get model-written messages  
+
+```bash
+export XAI_API_KEY=your_key_here
+rigit
+```
+
+Uses `grok-4.5` when the key is present; falls back offline if not.
+
+---
 
 ## Requirements
 
-- Node.js 18+
-- `git` on PATH
-- Interactive terminal (TTY)
+- **Node.js 18+**
+- **`git`** on your `PATH`
+- An **interactive terminal** (not a pure pipe / headless CI)
+
+---
+
+## Mental model (30 seconds)
+
+```
+  disk changes  ──commit──►  local history  ──push──►  remote
+       ▲                          ▲
+   file list                   Sync ↑ N
+  (this tab)              (not pushed yet)
+```
+
+The file list is **only uncommitted work**.  
+After commit, files leave the list — check **Sync** and the top banner to see if you’re on the remote.
+
+---
+
+## License
+
+MIT · Built with [Ink](https://github.com/vadimdemedes/ink) + TypeScript
+
+```bash
+npx @srinesh/rigit
+```
