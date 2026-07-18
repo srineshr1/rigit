@@ -8,6 +8,8 @@ type Props = {
   onChange: (v: string) => void;
   onSubmit: (v: string) => void;
   focus?: boolean;
+  /** Mask input (for API keys / tokens) */
+  mask?: boolean;
 };
 
 export function TextPrompt({
@@ -17,6 +19,7 @@ export function TextPrompt({
   onChange,
   onSubmit,
   focus = true,
+  mask = false,
 }: Props) {
   return (
     <Box flexDirection="column">
@@ -30,6 +33,7 @@ export function TextPrompt({
           onSubmit={onSubmit}
           focus={focus}
           showCursor
+          mask={mask ? "*" : undefined}
         />
       </Box>
     </Box>

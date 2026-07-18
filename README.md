@@ -12,6 +12,9 @@
 npx @srinesh/rigit
 # or
 npm i -g @srinesh/rigit && rigit
+
+# first-time: API keys + GitHub
+rigit setup
 ```
 
 ---
@@ -121,37 +124,53 @@ npm run dev       # run from source
 
 ---
 
-## Commit messages
+## Setup (`rigit setup`)
 
-By default, messages are a short **heuristic** from staged paths (no network).
+Interactive config — no need to hand-edit env vars:
 
-Optionally, set **one or more** API keys for AI-written conventional commits:
+```bash
+rigit setup
+```
 
-| Provider | Env var | Default model |
-|----------|---------|----------------|
+| Section | What you can do |
+|---------|------------------|
+| **AI providers** | Save **xAI**, **Groq**, or **Gemini** API keys; pick default provider / model |
+| **GitHub** | Run **`gh auth login`**, or paste a **personal access token** |
+| **Status** | View masked keys + whether `gh` is logged in |
+
+Settings are stored in:
+
+```
+~/.config/rigit/config.json    # chmod 600
+```
+
+Environment variables still work and **override** the config file when set.
+
+### Commit messages (AI)
+
+By default: short **heuristic** from staged paths (offline).
+
+| Provider | Env / setup key | Default model |
+|----------|-----------------|---------------|
 | **xAI** | `XAI_API_KEY` | `grok-4.5` |
 | **Groq** | `GROQ_API_KEY` | `llama-3.3-70b-versatile` |
 | **Gemini** | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | `gemini-2.0-flash` |
 
 ```bash
-# pick any one (or several)
-export XAI_API_KEY=...
+rigit setup          # recommended
+# or export keys yourself:
 export GROQ_API_KEY=...
-export GEMINI_API_KEY=...
-
-rigit
+export RIGIT_AI_PROVIDER=groq
+export RIGIT_AI_MODEL=llama-3.1-8b-instant   # optional
 ```
 
-**Which provider wins?**  
-If several keys are set, order is: **xAI → Groq → Gemini**.  
-Force one with:
+If several keys exist, order is **xAI → Groq → Gemini** (or force with `RIGIT_AI_PROVIDER`).  
+API failure → falls back to heuristic.
 
-```bash
-export RIGIT_AI_PROVIDER=groq    # or xai | gemini
-export RIGIT_AI_MODEL=llama-3.1-8b-instant   # optional override
-```
+### GitHub
 
-If the API fails or no key is set, rigit falls back to the offline heuristic.
+- **`gh auth login`** via setup (uses the official GitHub CLI)  
+- Or save **`GITHUB_TOKEN` / `GH_TOKEN`** in setup for tools that read those env vars  
 
 ---
 

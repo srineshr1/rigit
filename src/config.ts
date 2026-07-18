@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import type { AiProviderId } from "./message.js";
 
 export type RigitConfig = {
@@ -36,17 +36,24 @@ export function loadConfig(): RigitConfig {
   }
 }
 
-export function saveConfig( partial: Partial<RigitConfig>): RigitConfig {
+export function saveConfig(partial: Partial<RigitConfig>): RigitConfig {
   const current = loadConfig();
   const next: RigitConfig = { ...current };
 
-  for (const [k, v] of Object.entries(partial) as [keyof RigitConfig, string | undefined][]) {
+  (Object.keys(partial) as (keyof RigitConfig)[]).forEach((k) => {
+    const v = partial[k];
     if (v === undefined || v === "") {
       delete next[k];
     } else {
-      next[k] = v;
+      // Assign per-key so AiProviderId stays typed
+      if (k === "aiProvider") next.aiProvider = v as AiProviderId;
+      else if (k === "xaiApiKey") next.xaiApiKey = v;
+      else if (k === "groqApiKey") next.groqApiKey = v;
+      else if (k === "geminiApiKey") next.geminiApiKey = v;
+      else if (k === "aiModel") next.aiModel = v;
+      else if (k === "githubToken") next.githubToken = v;
     }
-  }
+  });
 
   mkdirSync(CONFIG_DIR, { recursive: true });
   writeFileSync(CONFIG_PATH, JSON.stringify(next, null, 2) + "\n", "utf8");
@@ -61,6 +68,23 @@ export function saveConfig( partial: Partial<RigitConfig>): RigitConfig {
 export function clearConfigKey(key: keyof RigitConfig): RigitConfig {
   const current = loadConfig();
   delete current[key];
+  mkdirSync(CONFIG_DIR, { recursive: true });
+  writeFileSync(CONFIG_PATH, JSON.stringify(current, null, 2) + "\n", "utf8");
+  try {
+    chmodSync(CONFIG_PATH, 0o600);
+  } catch {
+    /* ignore */
+  }
+  return current;
+}
+
+export function clearAiConfig(): RigitConfig {
+  const current = loadConfig();
+  delete current.xaiApiKey;
+  delete current.groqApiKey;
+  delete current.geminiApiKey;
+  delete current.aiProvider;
+  delete current.aiModel;
   mkdirSync(CONFIG_DIR, { recursive: true });
   writeFileSync(CONFIG_PATH, JSON.stringify(current, null, 2) + "\n", "utf8");
   try {
