@@ -1,6 +1,6 @@
 {
   "name": "@srinesh/rigit",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Single-command TUI for staging, committing, and pushing git changes",
   "type": "module",
   "bin": {
