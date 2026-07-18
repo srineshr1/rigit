@@ -123,15 +123,35 @@ npm run dev       # run from source
 
 ## Commit messages
 
-- **Default:** short heuristic from your staged paths  
-- **Smarter (optional):** set an xAI key and get model-written messages  
+By default, messages are a short **heuristic** from staged paths (no network).
+
+Optionally, set **one or more** API keys for AI-written conventional commits:
+
+| Provider | Env var | Default model |
+|----------|---------|----------------|
+| **xAI** | `XAI_API_KEY` | `grok-4.5` |
+| **Groq** | `GROQ_API_KEY` | `llama-3.3-70b-versatile` |
+| **Gemini** | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | `gemini-2.0-flash` |
 
 ```bash
-export XAI_API_KEY=your_key_here
+# pick any one (or several)
+export XAI_API_KEY=...
+export GROQ_API_KEY=...
+export GEMINI_API_KEY=...
+
 rigit
 ```
 
-Uses `grok-4.5` when the key is present; falls back offline if not.
+**Which provider wins?**  
+If several keys are set, order is: **xAI → Groq → Gemini**.  
+Force one with:
+
+```bash
+export RIGIT_AI_PROVIDER=groq    # or xai | gemini
+export RIGIT_AI_MODEL=llama-3.1-8b-instant   # optional override
+```
+
+If the API fails or no key is set, rigit falls back to the offline heuristic.
 
 ---
 

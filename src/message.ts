@@ -44,14 +44,133 @@ function pickVerb(kinds: Set<string>, names: string[]): string {
   if (kinds.size === 1 && kinds.has("D")) return "Remove";
   if (kinds.size === 1 && kinds.has("R")) return "Rename";
   if (names.some((n) => /readme/i.test(n))) return "Update";
-  if (names.some((n) => /\.(md|txt|rst)$/i.test(n)) && names.every((n) => /\.(md|txt|rst)$/i.test(n))) {
+  if (
+    names.some((n) => /\.(md|txt|rst)$/i.test(n)) &&
+    names.every((n) => /\.(md|txt|rst)$/i.test(n))
+  ) {
     return "Docs";
   }
   return "Update";
 }
 
+// ── AI providers ──────────────────────────────────────────────
+
+export type AiProviderId = "xai" | "groq" | "gemini";
+
+type ProviderConfig = {
+  id: AiProviderId;
+  label: string;
+  apiKey: string;
+  baseURL: string;
+  /** Default model if RIGIT_AI_MODEL is unset */
+  defaultModel: string;
+};
+
+const SYSTEM_PROMPT =
+  "You write concise git commit messages. Reply with a single line only, no quotes, no trailing period unless needed. Prefer conventional commits style (feat:, fix:, docs:, refactor:, chore:) when it fits. Max ~72 characters.";
+
+function env(name: string): string | undefined {
+  const v = process.env[name]?.trim();
+  return v || undefined;
+}
+
 /**
- * Prefer xAI when XAI_API_KEY is set; otherwise heuristic.
+ * Resolve which AI provider to use.
+ *
+ * Priority when several keys are set:
+ *   1. RIGIT_AI_PROVIDER=xai|groq|gemini (must have that key)
+ *   2. XAI_API_KEY → xAI
+ *   3. GROQ_API_KEY → Groq
+ *   4. GEMINI_API_KEY or GOOGLE_API_KEY → Gemini
+ *
+ * Optional: RIGIT_AI_MODEL overrides the default model.
+ */
+export function resolveAiProvider(): ProviderConfig | null {
+  const forced = env("RIGIT_AI_PROVIDER")?.toLowerCase() as
+    | AiProviderId
+    | undefined;
+
+  const xai = env("XAI_API_KEY");
+  const groq = env("GROQ_API_KEY");
+  const gemini = env("GEMINI_API_KEY") ?? env("GOOGLE_API_KEY");
+
+  const configs: ProviderConfig[] = [];
+  if (xai) {
+    configs.push({
+      id: "xai",
+      label: "xAI",
+      apiKey: xai,
+      baseURL: "https://api.x.ai/v1",
+      defaultModel: "grok-4.5",
+    });
+  }
+  if (groq) {
+    configs.push({
+      id: "groq",
+      label: "Groq",
+      apiKey: groq,
+      baseURL: "https://api.groq.com/openai/v1",
+      defaultModel: "llama-3.3-70b-versatile",
+    });
+  }
+  if (gemini) {
+    configs.push({
+      id: "gemini",
+      label: "Gemini",
+      apiKey: gemini,
+      baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
+      defaultModel: "gemini-2.0-flash",
+    });
+  }
+
+  if (configs.length === 0) return null;
+
+  if (forced) {
+    const match = configs.find((c) => c.id === forced);
+    if (match) return match;
+    // Forced provider has no key — fall through to first available
+  }
+
+  return configs[0] ?? null;
+}
+
+function cleanMessageLine(text: string): string | undefined {
+  const line = text
+    .split("\n")
+    .map((l) => l.trim())
+    .find(Boolean);
+  if (!line) return undefined;
+  return line.replace(/^["']|["']$/g, "").slice(0, 200);
+}
+
+async function completeWithOpenAiCompat(
+  provider: ProviderConfig,
+  userContent: string,
+): Promise<string | undefined> {
+  const model = env("RIGIT_AI_MODEL") ?? provider.defaultModel;
+  const client = new OpenAI({
+    apiKey: provider.apiKey,
+    baseURL: provider.baseURL,
+    timeout: 12_000,
+  });
+
+  const resp = await client.chat.completions.create({
+    model,
+    temperature: 0.2,
+    max_tokens: 80,
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: userContent },
+    ],
+  });
+
+  const text = resp.choices[0]?.message?.content?.trim();
+  return text ? cleanMessageLine(text) : undefined;
+}
+
+/**
+ * AI commit message when any supported key is set; otherwise heuristic.
+ * Providers: xAI (XAI_API_KEY), Groq (GROQ_API_KEY), Gemini (GEMINI_API_KEY / GOOGLE_API_KEY).
  */
 export async function generateCommitMessage(
   paths: string[],
@@ -59,44 +178,23 @@ export async function generateCommitMessage(
   diffForAi: string,
 ): Promise<string> {
   const fallback = heuristicMessage(paths, diffSummary);
-  const key = process.env.XAI_API_KEY?.trim();
-  if (!key) return fallback;
+  const provider = resolveAiProvider();
+  if (!provider) return fallback;
+
+  const userContent = `Write one commit message for this staged change:\n\n${diffForAi || diffSummary || paths.join("\n")}`;
 
   try {
-    const client = new OpenAI({
-      apiKey: key,
-      baseURL: "https://api.x.ai/v1",
-      timeout: 8_000,
-    });
-
-    const resp = await client.chat.completions.create({
-      model: "grok-4.5",
-      temperature: 0.2,
-      max_tokens: 80,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You write concise git commit messages. Reply with a single line only, no quotes, no trailing period unless needed. Prefer conventional commits style (feat:, fix:, docs:, refactor:, chore:) when it fits. Max ~72 characters.",
-        },
-        {
-          role: "user",
-          content: `Write one commit message for this staged change:\n\n${diffForAi || diffSummary || paths.join("\n")}`,
-        },
-      ],
-    });
-
-    const text = resp.choices[0]?.message?.content?.trim();
-    if (!text) return fallback;
-
-    // First non-empty line, strip surrounding quotes
-    const line = text
-      .split("\n")
-      .map((l) => l.trim())
-      .find(Boolean);
-    if (!line) return fallback;
-    return line.replace(/^["']|["']$/g, "").slice(0, 200);
+    const line = await completeWithOpenAiCompat(provider, userContent);
+    return line || fallback;
   } catch {
     return fallback;
   }
+}
+
+/** For UI / debugging: which provider would be used (if any). */
+export function describeAiBackend(): string {
+  const p = resolveAiProvider();
+  if (!p) return "heuristic (no API key)";
+  const model = env("RIGIT_AI_MODEL") ?? p.defaultModel;
+  return `${p.label} · ${model}`;
 }
