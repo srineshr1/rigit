@@ -167,10 +167,15 @@ export RIGIT_AI_MODEL=llama-3.1-8b-instant   # optional
 If several keys exist, order is **xAI → Groq → Gemini** (or force with `RIGIT_AI_PROVIDER`).  
 API failure → falls back to heuristic.
 
-### GitHub
+### GitHub (HTTPS push)
 
-- **`gh auth login`** via setup (uses the official GitHub CLI)  
-- Or save **`GITHUB_TOKEN` / `GH_TOKEN`** in setup for tools that read those env vars  
+Push never hangs on a username/password prompt inside the TUI.
+
+- Prefer **`gh auth login`** via `rigit setup` (also runs `gh auth setup-git`)  
+- Or save a **`GITHUB_TOKEN` / `GH_TOKEN`** (PAT) in setup / env  
+- Or use an **SSH** remote (`git@github.com:…`) with your SSH key  
+
+If push fails with auth, the TUI shows the git error plus those fix options.  
 
 ---
 

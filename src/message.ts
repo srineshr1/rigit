@@ -66,8 +66,22 @@ type ProviderConfig = {
   defaultModel: string;
 };
 
-const SYSTEM_PROMPT =
-  "You write concise git commit messages. Reply with a single line only, no quotes, no trailing period unless needed. Prefer conventional commits style (feat:, fix:, docs:, refactor:, chore:) when it fits. Max ~72 characters.";
+const SYSTEM_PROMPT = [
+  "You write concise git commit messages from the staged diff.",
+  "Reply with a single line only: no quotes, no markdown, no trailing period unless needed. Max ~72 characters.",
+  "Use conventional commits (type: summary) ONLY when the type is clearly supported by the diff:",
+  "  feat — new user-facing capability (not default)",
+  "  fix — bug fix or regression fix",
+  "  docs — documentation / comments / README only",
+  "  refactor — restructure with no intended behavior change",
+  "  chore — tooling, deps, config, build, CI, ignore files",
+  "  style — formatting / whitespace only",
+  "  test — tests only",
+  "  perf — performance improvement",
+  "Do NOT default to feat. Prefer fix, chore, docs, or refactor when those fit better.",
+  "If the type is ambiguous, use a plain imperative sentence with no type prefix (e.g. \"Update push auth hints\").",
+  "Describe what changed concretely; do not invent scope or features not in the diff.",
+].join(" ");
 
 function env(name: string): string | undefined {
   const v = process.env[name]?.trim();
@@ -181,7 +195,19 @@ export async function generateCommitMessage(
   const provider = resolveAiProvider();
   if (!provider) return fallback;
 
-  const userContent = `Write one commit message for this staged change:\n\n${diffForAi || diffSummary || paths.join("\n")}`;
+  const userContent = [
+    "Write one commit message for this staged change.",
+    "Pick the conventional type from the diff content (not feat by default).",
+    "",
+    "Paths:",
+    paths.join("\n") || "(none)",
+    "",
+    "Name-status:",
+    diffSummary || "(none)",
+    "",
+    "Diff:",
+    diffForAi || "(no diff text)",
+  ].join("\n");
 
   try {
     const line = await completeWithOpenAiCompat(provider, userContent);

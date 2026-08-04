@@ -44,7 +44,37 @@ export function getGhAuthStatus(): GhStatus {
   };
 }
 
-/** Interactive browser/device login (stdio inherit). */
+/** True when gh is installed and reports a logged-in session. */
+export function isGhLoggedIn(): boolean {
+  const s = getGhAuthStatus();
+  return s.ok === true && s.loggedIn === true;
+}
+
+/**
+ * Wire git to use gh as a credential helper for authenticated hosts.
+ * Safe to call repeatedly; non-fatal if it fails.
+ */
+export function runGhAuthSetupGit(): { ok: boolean; detail: string } {
+  if (!isGhInstalled()) {
+    return { ok: false, detail: "gh is not installed." };
+  }
+  const r = spawnSync("gh", ["auth", "setup-git"], {
+    encoding: "utf8",
+  });
+  if ((r.status ?? 1) === 0) {
+    return {
+      ok: true,
+      detail: "Configured git to use gh as a credential helper.",
+    };
+  }
+  const err = `${r.stderr ?? ""}\n${r.stdout ?? ""}`.trim();
+  return {
+    ok: false,
+    detail: err || `gh auth setup-git exited with code ${r.status ?? 1}.`,
+  };
+}
+
+/** Interactive browser/device login (stdio inherit). Also runs setup-git. */
 export function runGhAuthLogin(): { ok: boolean; detail: string } {
   if (!isGhInstalled()) {
     return {
@@ -60,17 +90,37 @@ export function runGhAuthLogin(): { ok: boolean; detail: string } {
     encoding: "utf8",
   });
 
-  if ((r.status ?? 1) === 0) {
-    return { ok: true, detail: "gh auth login finished." };
+  if ((r.status ?? 1) !== 0) {
+    return {
+      ok: false,
+      detail: `gh auth login exited with code ${r.status ?? 1}.`,
+    };
+  }
+
+  // So plain `git push` (and rigit) can use the session without hanging on HTTPS.
+  const setup = runGhAuthSetupGit();
+  if (setup.ok) {
+    return {
+      ok: true,
+      detail: "gh auth login finished · git credential helper configured.",
+    };
   }
   return {
-    ok: false,
-    detail: `gh auth login exited with code ${r.status ?? 1}.`,
+    ok: true,
+    detail: `gh auth login finished (credential helper setup skipped: ${setup.detail}).`,
   };
 }
 
 export function hasGithubTokenInEnv(): boolean {
-  return Boolean(
-    process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim(),
-  );
+  return Boolean(getGithubHttpsToken());
+}
+
+/**
+ * Token for HTTPS GitHub auth: env first (GITHUB_TOKEN / GH_TOKEN),
+ * already applied from rigit config at CLI startup.
+ */
+export function getGithubHttpsToken(): string | undefined {
+  const t =
+    process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim() || "";
+  return t || undefined;
 }

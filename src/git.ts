@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { getGithubHttpsToken, isGhInstalled } from "./github.js";
 
 export type ChangedFile = {
   path: string;
@@ -8,14 +9,33 @@ export type ChangedFile = {
   label: string;
 };
 
+/** Env for every git invocation — never hang the TUI on credential prompts. */
+function gitEnv(
+  extra: NodeJS.ProcessEnv = {},
+): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    // Disable interactive username/password prompts on the TTY
+    GIT_TERMINAL_PROMPT: "0",
+    // Git Credential Manager (if installed) — never open a GUI/prompt
+    GCM_INTERACTIVE: process.env.GCM_INTERACTIVE ?? "never",
+    ...extra,
+  };
+}
+
 function runGit(
   args: string[],
-  opts: { allowFailure?: boolean; input?: string } = {},
+  opts: {
+    allowFailure?: boolean;
+    input?: string;
+    env?: NodeJS.ProcessEnv;
+  } = {},
 ): { stdout: string; stderr: string; status: number } {
   const result = spawnSync("git", args, {
     encoding: "utf8",
     input: opts.input,
     maxBuffer: 20 * 1024 * 1024,
+    env: gitEnv(opts.env),
   });
 
   const status = result.status ?? 1;
@@ -28,6 +48,50 @@ function runGit(
   }
 
   return { stdout, stderr, status };
+}
+
+/**
+ * Args/env so HTTPS GitHub pushes use gh or a token instead of hanging
+ * on "Username for 'https://github.com':".
+ *
+ * - Prefer `gh auth git-credential` when the user has run `gh auth login`
+ * - Else use GITHUB_TOKEN / GH_TOKEN (from env or rigit config) via a
+ *   one-shot shell credential helper
+ */
+function pushAuthPrefix(): { args: string[]; env?: NodeJS.ProcessEnv } {
+  // Prefer gh when installed — returns empty if not logged in; other helpers still run.
+  // Avoids spawning `gh auth status` on every push.
+  if (isGhInstalled()) {
+    return {
+      args: ["-c", "credential.helper=!gh auth git-credential"],
+    };
+  }
+
+  const token = getGithubHttpsToken();
+  if (token) {
+    // GitHub accepts any username with a PAT; x-access-token is conventional.
+    // Shell-escape the token for single-quoted embedding.
+    const safe = token.replace(/'/g, `'\\''`);
+    const helper =
+      `!f() { echo username=x-access-token; echo password='${safe}'; }; f`;
+    return {
+      args: ["-c", `credential.helper=${helper}`],
+    };
+  }
+
+  return { args: [] };
+}
+
+function runPush(pushArgs: string[]): {
+  stdout: string;
+  stderr: string;
+  status: number;
+} {
+  const auth = pushAuthPrefix();
+  return runGit([...auth.args, ...pushArgs], {
+    allowFailure: true,
+    env: auth.env,
+  });
 }
 
 export function isGitRepo(): boolean {
@@ -230,7 +294,11 @@ export type PushResult =
       branch: string;
       remote?: string;
     }
-  | { ok: false; error: string; code?: "no_remote" | "rejected" | "other" };
+  | {
+      ok: false;
+      error: string;
+      code?: "no_remote" | "rejected" | "auth" | "other";
+    };
 
 function pushSuccessDetail(remoteHint?: string): PushResult {
   const hash = runGit(["rev-parse", "--short", "HEAD"], {
@@ -255,44 +323,41 @@ function pushSuccessDetail(remoteHint?: string): PushResult {
   };
 }
 
+function pushFailure(stderr: string, stdout: string): PushResult {
+  const raw = stderr || stdout;
+  return {
+    ok: false,
+    error: formatPushError(raw),
+    code: isAuthPushError(raw) ? "auth" : "rejected",
+  };
+}
+
 export function push(): PushResult {
   if (hasUpstream()) {
-    const r = runGit(["push"], { allowFailure: true });
+    const r = runPush(["push"]);
     if (r.status === 0) {
       return pushSuccessDetail();
     }
-    return {
-      ok: false,
-      error: formatPushError(r.stderr || r.stdout),
-      code: "rejected",
-    };
+    return pushFailure(r.stderr, r.stdout);
   }
 
   if (hasRemote("origin")) {
-    const r = runGit(["push", "-u", "origin", "HEAD"], { allowFailure: true });
+    const r = runPush(["push", "-u", "origin", "HEAD"]);
     if (r.status === 0) {
       return pushSuccessDetail(`origin/${currentBranch()}`);
     }
-    return {
-      ok: false,
-      error: formatPushError(r.stderr || r.stdout),
-      code: "rejected",
-    };
+    return pushFailure(r.stderr, r.stdout);
   }
 
   // Any other remotes?
   const remotes = listRemotes();
   if (remotes.length > 0) {
     const name = remotes[0]!.name;
-    const r = runGit(["push", "-u", name, "HEAD"], { allowFailure: true });
+    const r = runPush(["push", "-u", name, "HEAD"]);
     if (r.status === 0) {
       return pushSuccessDetail(`${name}/${currentBranch()}`);
     }
-    return {
-      ok: false,
-      error: formatPushError(r.stderr || r.stdout),
-      code: "rejected",
-    };
+    return pushFailure(r.stderr, r.stdout);
   }
 
   return {
@@ -360,6 +425,23 @@ export function headShort(): string {
     .stdout.trim();
 }
 
+function isAuthPushError(raw: string): boolean {
+  const lower = raw.toLowerCase();
+  return (
+    lower.includes("authentication") ||
+    lower.includes("permission denied") ||
+    lower.includes("could not read username") ||
+    lower.includes("terminal prompts disabled") ||
+    lower.includes("invalid username or token") ||
+    lower.includes("support for password authentication was removed") ||
+    lower.includes("403") ||
+    lower.includes("401") ||
+    lower.includes("auth fail") ||
+    lower.includes("access denied") ||
+    lower.includes("repository not found") // often private + bad auth
+  );
+}
+
 function formatPushError(raw: string): string {
   const msg = raw.trim();
   if (!msg) return "Push failed.";
@@ -367,13 +449,16 @@ function formatPushError(raw: string): string {
   if (lower.includes("non-fast-forward") || lower.includes("fetch first")) {
     return `${msg}\nHint: remote is ahead — pull/rebase before pushing (rigit will not force-push).`;
   }
-  if (
-    lower.includes("authentication") ||
-    lower.includes("permission denied") ||
-    lower.includes("could not read username") ||
-    lower.includes("403")
-  ) {
-    return `${msg}\nHint: check SSH keys or credentials (gh auth login / ssh -T git@github.com).`;
+  if (isAuthPushError(msg)) {
+    const hints: string[] = [
+      "Git could not authenticate with the remote (interactive prompts are disabled in the TUI).",
+      "Fix one of:",
+      "  · rigit setup  →  GitHub  →  Run gh auth login  (then gh uses your session to push)",
+      "  · gh auth login && gh auth setup-git",
+      "  · Use an SSH remote:  git remote set-url origin git@github.com:USER/REPO.git",
+      "  · Or save a PAT in  rigit setup  / GITHUB_TOKEN",
+    ];
+    return `${msg}\n${hints.join("\n")}`;
   }
   return msg;
 }

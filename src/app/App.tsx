@@ -38,6 +38,8 @@ export function App() {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [inputMode, setInputMode] = useState(false);
   const lastSyncRef = useRef(syncKey(sync));
+  const inputModeRef = useRef(inputMode);
+  inputModeRef.current = inputMode;
 
   const refreshFiles = useCallback(() => {
     const next = getChangedFiles();
@@ -59,6 +61,17 @@ export function App() {
     setSync(nextSync);
     refreshFiles();
     return nextSync;
+  }, [refreshFiles]);
+
+  // Poll working tree so newly edited files appear without a manual refresh.
+  useEffect(() => {
+    const id = setInterval(() => {
+      // Skip while typing a commit message / identity / remote so the list
+      // doesn't jump under the user mid-input.
+      if (inputModeRef.current) return;
+      refreshFiles();
+    }, 5_000);
+    return () => clearInterval(id);
   }, [refreshFiles]);
 
   const onActivity = useCallback((a: Activity) => {
