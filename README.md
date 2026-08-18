@@ -201,6 +201,16 @@ After commit, files leave the list — check **Sync** and the top banner to see 
 
 ---
 
+## Contributors
+
+Thanks to everyone who has helped make rigit better!
+
+- [srineshr1](https://github.com/srineshr1) — maintainer · pubgliverisgood@gmail.com
+
+Want to contribute? Open an issue or a pull request — bug reports, docs tweaks, and new features are all welcome.
+
+---
+
 ## License
 
 MIT · Built with [Ink](https://github.com/vadimdemedes/ink) + TypeScript
